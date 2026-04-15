@@ -1,0 +1,19 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.env
+.env.local
+
+# runtime data (keep structure, ignore contents)
+data/chroma/
+data/raw/*/
+data/logs/*.json
+data/projects/
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

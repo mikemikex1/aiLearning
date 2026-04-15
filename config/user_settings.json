@@ -1,0 +1,19 @@
+{
+  "routing": {
+    "simple_model": "gemini-2.5-flash-lite",
+    "complex_model": "gemini-2.5-flash",
+    "downgrade_on_429": true
+  },
+  "feeds": {
+    "arxiv_cs_ai": true,
+    "simonw": true,
+    "hf_papers": true,
+    "hn": true
+  },
+  "feed_keywords": {
+    "arxiv_cs_ai": [],
+    "simonw": [],
+    "hf_papers": [],
+    "hn": []
+  }
+}
