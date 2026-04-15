@@ -60,3 +60,6 @@ if st.session_state.last_sources:
                 st.caption(s["snippet"] + "…")
             if s.get("link"):
                 st.markdown(f"[Open source]({s['link']})")
+            if s.get("parent_text"):
+                with st.expander("Show full context chunk"):
+                    st.text(s["parent_text"])

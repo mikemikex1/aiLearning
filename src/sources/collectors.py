@@ -104,8 +104,12 @@ def collect_all(keywords: list[str] | None = None) -> Path:
         items.extend(i for i in src_items if _keyword_match(i, effective))
 
     now = _now_iso()
+    sources_used = sorted(raw_per_source.keys())
     payload = {
-        "description": f"Raw AI-trend collection fetched_at={now}",
+        "description": (
+            f"AILearning daily fetch — fetched_at={now} "
+            f"sources=[{', '.join(sources_used)}]"
+        ),
         "fetched_at": now,
         "keywords": keywords or [],
         "source_count": len({i["source"] for i in items}),

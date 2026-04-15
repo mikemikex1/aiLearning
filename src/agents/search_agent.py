@@ -20,7 +20,8 @@ class Citation(TypedDict, total=False):
     link: str
     kind: str          # blueprint | code | stability_report | rss | ...
     file: str
-    snippet: str
+    snippet: str       # first ~220 chars for inline preview
+    parent_text: str   # full parent chunk (~1500 chars)
 
 
 TEMPLATE = (
@@ -48,7 +49,8 @@ def _build_citation(i: int, c: dict) -> Citation:
     source_type: Literal["web", "project"] = (
         "project" if m.get("source") == "project" else "web"
     )
-    snippet = (c.get("text") or "")[:220].replace("\n", " ")
+    full_text = c.get("text") or ""
+    snippet = full_text[:220].replace("\n", " ")
     return Citation(
         source_type=source_type,
         title=m.get("title") or m.get("project_id") or f"source-{i}",
@@ -56,6 +58,7 @@ def _build_citation(i: int, c: dict) -> Citation:
         kind=m.get("kind", m.get("source", "")),
         file=m.get("file", ""),
         snippet=snippet,
+        parent_text=full_text,
     )
 
 

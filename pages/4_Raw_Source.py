@@ -25,7 +25,7 @@ if not dates:
 else:
     picked = st.selectbox("Date", dates)
     q = st.text_input("Filter by keyword")
-    files = list((RAW_DIR / picked).glob("*.json"))
+    files = sorted((RAW_DIR / picked).glob("collected_*.json"), reverse=True)
     for f in files:
         payload = json.loads(f.read_text())
         items = payload.get("items", payload) if isinstance(payload, dict) else payload

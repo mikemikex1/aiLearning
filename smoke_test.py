@@ -89,8 +89,14 @@ class _Response:
     def __init__(self, content="", media_type="text/plain"):
         self.content = content
         self.media_type = media_type
+class _BackgroundTasks:
+    def __init__(self):
+        self._tasks = []
+    def add_task(self, fn, *args, **kwargs):
+        from types import SimpleNamespace
+        self._tasks.append(SimpleNamespace(func=fn, args=args, kwargs=kwargs))
 _stub("fastapi", {"FastAPI": _FastAPI, "HTTPException": _HTTPExc,
-                  "Response": _Response})
+                  "Response": _Response, "BackgroundTasks": _BackgroundTasks})
 
 # langgraph (minimal graph runner)
 START, END = "__start__", "__end__"
@@ -301,12 +307,21 @@ with _tf.TemporaryDirectory() as td:
     print(f"  indexed {n} parent chunks from fake project")
 
 print("== FastAPI batch layer ==")
-from api.main import app, health, ingest, search, plan, build, errors
+from api.main import app, health, ingest, ingest_status, search, plan, build, errors
 from api.main import SearchReq, PlanReq, BuildReq
+from fastapi import BackgroundTasks as _BT  # resolves to smoke-test stub
 
 h = health()
 assert h["status"] == "ok" and "models" in h
 print(f"  /health -> {h['status']}, models={list(h['models'].values())}")
+
+bt = _BT()
+ij = ingest(bt)
+assert ij["status"] == "running" and "job_id" in ij
+bt._tasks[0].func(*bt._tasks[0].args)  # run background task synchronously
+is_ = ingest_status(ij["job_id"])
+assert is_["status"] in ("done", "failed")
+print(f"  /ingest -> job_id={ij['job_id'][:8]}... status after run={is_['status']}")
 
 p = plan(PlanReq(topic="langgraph interrupts"))
 assert "blueprint" in p and p["blueprint"]
@@ -371,4 +386,4 @@ nar = news_archive()
 assert "payloads" in nar
 print(f"  /news/top3 + /news/atom + /news/archive ok")
 
-print("\n✅ SMOKE TEST PASSED")
+print("\n[OK] SMOKE TEST PASSED")

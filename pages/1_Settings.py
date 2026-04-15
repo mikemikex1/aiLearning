@@ -9,6 +9,7 @@ from config.settings import (
     FEED_CATALOG,
     MODEL_LITE,
     MODEL_FLASH,
+    EMBEDDING_MODEL,
     load_keywords,
     save_keywords,
     load_user_settings,
@@ -75,6 +76,7 @@ with c2:
         options=model_options,
         index=_safe_idx(routing.get("complex_model", MODEL_FLASH), 1),
     )
+st.info(f"Embedding model (fixed): `{EMBEDDING_MODEL}` — used by RAG ingest & retrieval, 1,500 RPM free tier")
 downgrade = st.checkbox(
     "Downgrade complex → simple on repeated 429 (quota exceeded)",
     value=bool(routing.get("downgrade_on_429", True)),

@@ -5,20 +5,22 @@ Run with:
 
 Endpoints
 ---------
-GET  /health              — liveness + model routing snapshot
-POST /ingest              — trigger the daily Browser/RAG ingest
-POST /search    {query}   — RAG-backed Q&A with citations
-POST /plan      {topic}   — run Planner only, return blueprint.json
-POST /build     {topic,   — run full Planner→Programmer→Tester pipeline
+GET  /health                    — liveness + model routing snapshot
+POST /ingest                    — start ingest job in background, returns {job_id}
+GET  /ingest/status/{job_id}    — poll ingest job status
+POST /search    {query}         — RAG-backed Q&A with citations
+POST /plan      {topic}         — run Planner only, return blueprint.json
+POST /build     {topic,         — run full Planner→Programmer→Tester pipeline
                  blueprint?: dict}
-GET  /errors?limit=50     — tail of structured error_log.json
+GET  /errors?limit=50           — tail of structured error_log.json
 """
 from __future__ import annotations
+import uuid
 from typing import Any
-from fastapi import FastAPI, HTTPException
+from fastapi import BackgroundTasks, FastAPI, HTTPException
 from pydantic import BaseModel, Field
 
-from config.settings import MODEL_LITE, MODEL_FLASH
+from config.settings import MODEL_LITE, MODEL_FLASH, EMBEDDING_MODEL
 from src.agents.browser_rag import run_daily_ingest
 from src.agents.search_agent import answer
 from src.agents.code_team import run_planner_only, run_pipeline
@@ -32,6 +34,18 @@ app = FastAPI(
     version="0.1.0",
     description="Headless HTTP layer over the LangGraph pipeline",
 )
+
+# In-memory store for background ingest jobs (keyed by job_id).
+# Entries: {status: "running"|"done"|"failed", result?: dict, error?: str}
+_ingest_jobs: dict[str, dict] = {}
+
+
+def _run_ingest_job(job_id: str) -> None:
+    try:
+        result = run_daily_ingest()
+        _ingest_jobs[job_id] = {"status": "done", "result": result}
+    except Exception as e:  # noqa: BLE001
+        _ingest_jobs[job_id] = {"status": "failed", "error": str(e)}
 
 
 # ---------------- Schemas ----------------
@@ -54,17 +68,26 @@ class BuildReq(BaseModel):
 def health() -> dict:
     return {
         "status": "ok",
-        "models": {"simple": MODEL_LITE, "complex": MODEL_FLASH},
+        "models": {"simple": MODEL_LITE, "complex": MODEL_FLASH,
+                   "embedding": EMBEDDING_MODEL},
         "version": app.version,
     }
 
 
 @app.post("/ingest")
-def ingest() -> dict:
-    try:
-        return run_daily_ingest()
-    except Exception as e:  # noqa: BLE001
-        raise HTTPException(status_code=500, detail=f"ingest failed: {e}")
+def ingest(background_tasks: BackgroundTasks) -> dict:
+    job_id = uuid.uuid4().hex
+    _ingest_jobs[job_id] = {"status": "running"}
+    background_tasks.add_task(_run_ingest_job, job_id)
+    return {"job_id": job_id, "status": "running"}
+
+
+@app.get("/ingest/status/{job_id}")
+def ingest_status(job_id: str) -> dict:
+    job = _ingest_jobs.get(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail=f"job {job_id!r} not found")
+    return {"job_id": job_id, **job}
 
 
 @app.post("/search")

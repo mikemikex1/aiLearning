@@ -8,6 +8,7 @@ from __future__ import annotations
 import json
 import re
 import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import TypedDict
 from langgraph.graph import StateGraph, START, END
@@ -90,8 +91,9 @@ def programmer_node(state: TeamState) -> TeamState:
     except Exception as e:  # noqa: BLE001
         record("RUNTIME_FAIL", "code_team.programmer", str(e))
         code = "# generation failed\nprint('stub')\n"
-    # persist
-    pdir = ROOT / "data" / "projects" / bp["project_id"]
+    # persist — include timestamp so multiple builds of the same topic coexist
+    ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    pdir = ROOT / "data" / "projects" / f"{bp['project_id']}_{ts}"
     pdir.mkdir(parents=True, exist_ok=True)
     (pdir / "blueprint.json").write_text(json.dumps(bp, indent=2, ensure_ascii=False))
     (pdir / "main.py").write_text(code)

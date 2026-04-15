@@ -10,8 +10,11 @@ Rules
 - On 429 / ResourceExhausted → exponential backoff
 - If routing.downgrade_on_429 is True, complex downgrades to simple on
   repeated 429 during the same call.
+- LangSmith tracing is enabled when LANGCHAIN_API_KEY and
+  LANGCHAIN_TRACING_V2=true are present in the environment.
 """
 from __future__ import annotations
+import os
 import time
 from typing import Literal
 from langchain_google_genai import ChatGoogleGenerativeAI
@@ -27,12 +30,19 @@ def pick_model(task: TaskKind) -> str:
     return r.get("simple_model", MODEL_LITE)
 
 
-def make_llm(task: TaskKind, temperature: float = 0.2) -> ChatGoogleGenerativeAI:
-    return ChatGoogleGenerativeAI(
+def make_llm(task: TaskKind, temperature: float = 0.2):
+    """Return a configured LLM, with LangSmith tracing when credentials exist."""
+    llm = ChatGoogleGenerativeAI(
         model=pick_model(task),
         google_api_key=get_api_key(),
         temperature=temperature,
     )
+    if (os.getenv("LANGCHAIN_API_KEY")
+            and os.getenv("LANGCHAIN_TRACING_V2", "").lower() == "true"):
+        from langchain_core.tracers import LangChainTracer  # lazy import
+        project = os.getenv("LANGCHAIN_PROJECT", "ailearning-phase1")
+        return llm.with_config({"callbacks": [LangChainTracer(project_name=project)]})
+    return llm
 
 
 def call_with_fallback(task: TaskKind, prompt: str, max_retries: int = 3) -> str:
