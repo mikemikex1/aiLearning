@@ -197,3 +197,11 @@ For every code/config/behavior change, update documentation in the same commit:
 1. Update `README.md`
 2. Update handover document(s), at minimum:
    - `A_BROWSER_RAG_VALIDATION_HANDOVER.md`
+
+## Search Suggestion Source Rule
+
+Search quick suggestions must be generated from **indexed RAG content only**
+(Chroma `parents` collection), not directly from raw files.
+
+This prevents suggestion items from pointing to articles that were fetched into
+`data/raw/` but failed to enter vector storage.

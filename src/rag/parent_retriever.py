@@ -9,6 +9,7 @@ local embedding function for resilience.
 """
 from __future__ import annotations
 
+from datetime import datetime
 import re
 import uuid
 from typing import Iterable
@@ -189,3 +190,54 @@ def retrieve(query: str, k: int = 4) -> list[dict]:
     rows = real_rows if real_rows else rows
     rows.sort(key=lambda r: 1 if (r.get("metadata", {}) or {}).get("language") == q_lang else 0, reverse=True)
     return rows[:k]
+
+
+def list_indexed_items(limit: int = 60) -> list[dict]:
+    """Return de-duplicated indexed article metadata from parents collection.
+
+    Only returns real web/article sources (excludes test/project records).
+    """
+    parents = _client.get_or_create_collection("parents")
+    data = parents.get()
+    metas = data.get("metadatas", []) or []
+    docs = data.get("documents", []) or []
+
+    rows: list[dict] = []
+    for meta, doc in zip(metas, docs):
+        m = meta or {}
+        src = m.get("source", "")
+        if src in ("test", "project", ""):
+            continue
+        rows.append(
+            {
+                "source": src,
+                "title": m.get("title", ""),
+                "link": m.get("link", ""),
+                "published": m.get("published", ""),
+                "fetched_at": m.get("fetched_at", ""),
+                "language": m.get("language", ""),
+                "summary": (doc or "")[:500],
+            }
+        )
+
+    # Deduplicate by link/title while preserving the most recent fetched_at.
+    def _ts(v: str) -> float:
+        if not v:
+            return 0.0
+        try:
+            return datetime.fromisoformat(v.replace("Z", "+00:00")).timestamp()
+        except Exception:
+            return 0.0
+
+    rows.sort(key=lambda r: _ts(r.get("fetched_at", "")), reverse=True)
+    seen: set[str] = set()
+    deduped: list[dict] = []
+    for r in rows:
+        key = (r.get("link") or "").strip() or (r.get("title") or "").strip().lower()
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        deduped.append(r)
+        if len(deduped) >= limit:
+            break
+    return deduped

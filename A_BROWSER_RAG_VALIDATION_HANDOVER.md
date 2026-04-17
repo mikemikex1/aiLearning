@@ -165,3 +165,18 @@ From now on, every change must include documentation updates in the same commit:
 
 1. Update `README.md`
 2. Update this handover file (`A_BROWSER_RAG_VALIDATION_HANDOVER.md`)
+
+## 10) Search Suggestion Consistency
+
+Problem:
+- Raw files may exist even when embedding/storage partially fails.
+- If Search suggestions are built from raw data directly, users can click a
+  suggestion that has no indexed context and get "insufficient context" replies.
+
+Fix:
+- Search suggestions now use indexed records from Chroma `parents` only.
+- Test/project records are excluded from suggestion candidates.
+
+Outcome:
+- Suggested prompts are guaranteed to come from already indexed content,
+  reducing mismatch between UI suggestions and retrievable RAG context.

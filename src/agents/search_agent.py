@@ -1,31 +1,21 @@
-"""Search Agent — RAG retrieval + LLM synthesis.
-
-Upgrades over v0.1:
-- Project-aware: same Parent-Document store now also holds indexed projects
-  (blueprint / main.py / stability_report), tagged with source=`project`.
-- Conversation memory: accepts a list of prior (role, content) turns and
-  feeds a condensed history into the prompt so follow-ups resolve correctly.
-- Richer citations: each hit returns kind, source type, file / link, and a
-  short snippet for UI rendering.
-"""
+"""Search Agent: RAG retrieval + suggestion prompts + synthesis."""
 from __future__ import annotations
-import json
+
 import re
-from pathlib import Path
 from typing import Iterable, Literal, TypedDict
-from src.rag.parent_retriever import retrieve
+
 from src.models.router import call_with_fallback
-from config.settings import RAW_DIR
+from src.rag.parent_retriever import list_indexed_items, retrieve
 
 
 class Citation(TypedDict, total=False):
     source_type: Literal["web", "project"]
     title: str
     link: str
-    kind: str          # blueprint | code | stability_report | rss | ...
+    kind: str
     file: str
-    snippet: str       # first ~220 chars for inline preview
-    parent_text: str   # full parent chunk (~1500 chars)
+    snippet: str
+    parent_text: str
 
 
 TEMPLATE = (
@@ -43,7 +33,7 @@ def _format_history(history: Iterable[tuple[str, str]] | None) -> str:
     if not history:
         return "(none)"
     lines = []
-    for role, content in list(history)[-6:]:  # last 3 turns each side
+    for role, content in list(history)[-6:]:
         prefix = "User" if role in ("user", "human") else "Assistant"
         lines.append(f"{prefix}: {content[:400]}")
     return "\n".join(lines)
@@ -51,9 +41,7 @@ def _format_history(history: Iterable[tuple[str, str]] | None) -> str:
 
 def _build_citation(i: int, c: dict) -> Citation:
     m = c.get("metadata", {}) or {}
-    source_type: Literal["web", "project"] = (
-        "project" if m.get("source") == "project" else "web"
-    )
+    source_type: Literal["web", "project"] = "project" if m.get("source") == "project" else "web"
     full_text = c.get("text") or ""
     snippet = full_text[:220].replace("\n", " ")
     return Citation(
@@ -67,26 +55,9 @@ def _build_citation(i: int, c: dict) -> Citation:
     )
 
 
-def _latest_items(limit: int = 60) -> list[dict]:
-    dates = sorted([p for p in RAW_DIR.iterdir() if p.is_dir()], reverse=True)
-    for d in dates:
-        p = d / "collected.json"
-        if not p.exists():
-            continue
-        try:
-            payload = json.loads(p.read_text(encoding="utf-8"))
-            items = payload.get("items", [])
-            if isinstance(items, list):
-                real_items = [it for it in items if (it.get("source") != "test")]
-                return real_items[:limit]
-        except Exception:
-            continue
-    return []
-
-
-def _concise_title(title: str, max_len: int = 54) -> str:
+def _concise_title(title: str, max_len: int = 58) -> str:
     t = re.sub(r"\s+", " ", (title or "")).strip()
-    return t if len(t) <= max_len else t[: max_len - 1].rstrip() + "…"
+    return t if len(t) <= max_len else t[: max_len - 1].rstrip() + "..."
 
 
 def suggest_prompts(
@@ -95,24 +66,25 @@ def suggest_prompts(
     locale: str = "zh-TW",
     max_suggestions: int = 5,
 ) -> list[str]:
-    """Generate concise quick-pick prompts from latest fetched items + user context."""
+    """Generate concise quick prompts from *indexed* items only."""
     q = (query or "").strip().lower()
     history_blob = " ".join([c for _, c in (history or [])[-4:]]).lower()
     blob = f"{q} {history_blob}".strip()
-    items = _latest_items(limit=80)
+
+    items = list_indexed_items(limit=120)
     if not items:
         return []
 
     scored: list[tuple[int, dict]] = []
     for it in items:
-        title = (it.get("title") or "")
-        summary = (it.get("summary") or "")
+        title = it.get("title", "")
+        summary = it.get("summary", "")
         text = f"{title} {summary}".lower()
-        score = 0
+        score = 1
         if blob:
-            for token in re.findall(r"[a-zA-Z0-9\-\+]{3,}", blob)[:8]:
+            for token in re.findall(r"[a-zA-Z0-9\-\+\u4e00-\u9fff]{2,}", blob)[:10]:
                 if token in text:
-                    score += 1
+                    score += 2
         if it.get("source") == "hf_papers":
             score += 1
         scored.append((score, it))
@@ -124,9 +96,9 @@ def suggest_prompts(
     for it in picked:
         title = _concise_title(it.get("title", ""))
         if locale == "zh-TW":
-            prompt = f"這篇文章重點：{title}"
+            prompt = f"請用三點說明：{title}"
         else:
-            prompt = f"Key takeaway from this article: {title}"
+            prompt = f"Explain in 3 bullet points: {title}"
         if prompt not in out:
             out.append(prompt)
         if len(out) >= max_suggestions:
@@ -143,12 +115,16 @@ def answer(
     chunks = retrieve(query, k=k)
     if not chunks:
         return {
-            "answer": "No relevant context in RAG yet. Run daily ingest first.",
+            "answer": (
+                "目前找不到已入庫的相關內容，請先執行 ingest。"
+                if locale == "zh-TW"
+                else "No indexed context found yet. Please run ingest first."
+            ),
             "sources": [],
         }
+
     numbered_ctx = "\n\n".join(
-        f"[{i+1}] ({c['metadata'].get('source','?')}) "
-        f"{c['metadata'].get('title','?')}\n{c['text']}"
+        f"[{i+1}] ({c['metadata'].get('source','?')}) {c['metadata'].get('title','?')}\n{c['text']}"
         for i, c in enumerate(chunks)
     )
     prompt = TEMPLATE.format(
@@ -157,31 +133,29 @@ def answer(
         ctx=numbered_ctx,
         answer_language="Traditional Chinese" if locale == "zh-TW" else "English",
     )
+
     try:
         reply = call_with_fallback("complex", prompt)
     except Exception:
-        # Offline/network-failure fallback: return a deterministic local summary.
+        # Network-safe fallback summary.
         if locale == "zh-TW":
-            lines = [
-                "目前無法連線到雲端模型，以下為本地整理重點：",
-            ]
+            lines = ["目前無法連線到雲端模型，以下為本地整理重點："]
             for i, c in enumerate(chunks[:k], 1):
                 m = c.get("metadata", {}) or {}
                 title = m.get("title", f"來源 {i}")
-                snippet = (c.get("text", "") or "").replace("\n", " ")[:180]
+                snippet = (c.get("text", "") or "").replace("\n", " ")[:420]
                 lines.append(f"{i}. {title}：{snippet}...")
             lines.append("建議稍後重試以取得完整生成式回答。")
             reply = "\n".join(lines)
         else:
-            lines = [
-                "Cloud model is currently unreachable. Local fallback summary:",
-            ]
+            lines = ["Cloud model is currently unreachable. Local fallback summary:"]
             for i, c in enumerate(chunks[:k], 1):
                 m = c.get("metadata", {}) or {}
                 title = m.get("title", f"Source {i}")
-                snippet = (c.get("text", "") or "").replace("\n", " ")[:180]
+                snippet = (c.get("text", "") or "").replace("\n", " ")[:420]
                 lines.append(f"{i}. {title}: {snippet}...")
             lines.append("Please retry later for a full generated answer.")
             reply = "\n".join(lines)
+
     citations = [_build_citation(i, c) for i, c in enumerate(chunks)]
     return {"answer": reply, "sources": citations}
