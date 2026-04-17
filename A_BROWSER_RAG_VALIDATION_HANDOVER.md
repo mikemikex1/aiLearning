@@ -216,3 +216,21 @@ Validation checklist:
 - During generation -> suggestion area hidden.
 - After response -> exactly 3 new suggestions appear.
 - Chinese/English question should shift response/suggestion language accordingly.
+
+## 13) Git Automation Script (2026-04-17)
+
+New helper script: `git_sync.ps1`
+
+Purpose:
+- Reduce token/time cost from repetitive git command sequences.
+- Enforce commit message rule with automatic `refator:` prefix when missing.
+
+Behavior:
+1. Stage selected files (`-Files`) or default staged set (excluding `data/.venv/__pycache__`).
+2. Commit with normalized message format.
+3. Push to target branch (default `main`) unless `-NoPush` is set.
+
+Smoke test command:
+```powershell
+.\git_sync.ps1 -Action "docs sync" -Files README.md,A_BROWSER_RAG_VALIDATION_HANDOVER.md -NoPush
+```

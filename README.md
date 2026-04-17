@@ -226,3 +226,20 @@ Search page interaction now follows these constraints:
    - send and suggestion actions are disabled until reply is done.
 4. After assistant reply finishes, system regenerates exactly three new suggestions.
 5. Suggestion/answer language is resolved from recent user message first, then falls back to global locale setting.
+
+## Git One-Command Script
+
+Use `git_sync.ps1` to reduce repetitive git commands.
+
+Examples:
+
+```powershell
+.\git_sync.ps1 -Action "search page ui update"
+.\git_sync.ps1 -Action "docs sync" -Files README.md,A_BROWSER_RAG_VALIDATION_HANDOVER.md
+.\git_sync.ps1 -Action "local check" -NoPush
+```
+
+Rules:
+- If message has no prefix, script auto-converts to `refator: <action>`.
+- Default staging excludes `data/`, `.venv/`, and `__pycache__/`.
+- Use `-IncludeAll` if you really need full `git add -A`.

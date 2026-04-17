@@ -1,28 +1,65 @@
-# git_sync.ps1 — one-shot commit + push helper for AILearning
-# Usage: .\git_sync.ps1 "your commit message"
+# git_sync.ps1 - one command for stage + commit + push
+# Usage examples:
+#   .\git_sync.ps1 -Action "search page ui update"
+#   .\git_sync.ps1 -Action "update docs" -Files README.md,A_BROWSER_RAG_VALIDATION_HANDOVER.md
+#   .\git_sync.ps1 -Action "wip local only" -NoPush
 
 param(
-    [Parameter(Mandatory=$false)]
-    [string]$Message = "chore: sync from Claude session"
+    [Parameter(Mandatory = $true)]
+    [string]$Action,
+
+    [Parameter(Mandatory = $false)]
+    [string[]]$Files = @(),
+
+    [Parameter(Mandatory = $false)]
+    [string]$Branch = "main",
+
+    [switch]$IncludeAll,
+    [switch]$NoPush
 )
 
 $ErrorActionPreference = "Stop"
 Set-Location $PSScriptRoot
 
-if (-not (Test-Path .git)) {
-    Write-Host "==> git init (first run)"
-    git init -b main
-    git remote add origin git@github.com:mikemikex1/aiLearning.git
+if (-not (Test-Path ".git")) {
+    throw "This folder is not a git repository: $PSScriptRoot"
 }
 
-# Ensure remote is correct
-$remote = git remote get-url origin 2>$null
-if ($remote -ne "git@github.com:mikemikex1/aiLearning.git") {
-    git remote set-url origin git@github.com:mikemikex1/aiLearning.git
+function Run-Git {
+    param([string[]]$GitArgs)
+    Write-Host ("git " + ($GitArgs -join " "))
+    & git @GitArgs
+    if ($LASTEXITCODE -ne 0) {
+        throw "Git command failed: git $($GitArgs -join ' ')"
+    }
 }
 
-Write-Host "==> Staging changes"
-git add -A
+function Normalize-Message {
+    param([string]$Text)
+    $trimmed = ($Text | ForEach-Object { $_.Trim() })
+    if (-not $trimmed) {
+        throw "Action cannot be empty."
+    }
+    if ($trimmed -match "^(refator|feat|fix|docs|chore|test|perf):\s+") {
+        return $trimmed
+    }
+    return "refator: $trimmed"
+}
+
+Run-Git -GitArgs @("remote", "get-url", "origin")
+
+if ($Files.Count -gt 0) {
+    Write-Host "==> Stage selected files"
+    Run-Git -GitArgs (@("add", "--") + $Files)
+}
+elseif ($IncludeAll) {
+    Write-Host "==> Stage all changes"
+    Run-Git -GitArgs @("add", "-A")
+}
+else {
+    Write-Host "==> Stage changes (exclude data/.venv/__pycache__ by default)"
+    Run-Git -GitArgs @("add", "-A", "--", ".", ":(exclude)data/", ":(exclude).venv/", ":(exclude)__pycache__/")
+}
 
 $status = git status --porcelain
 if (-not $status) {
@@ -30,9 +67,15 @@ if (-not $status) {
     exit 0
 }
 
-Write-Host "==> Committing"
-git commit -m $Message
+$message = Normalize-Message -Text $Action
+Write-Host "==> Commit: $message"
+Run-Git -GitArgs @("commit", "-m", $message)
 
-Write-Host "==> Pushing to origin/main"
-git push -u origin main
-Write-Host "✓ Done."
+if ($NoPush) {
+    Write-Host "==> Skip push (-NoPush)"
+    exit 0
+}
+
+Write-Host "==> Push to origin/$Branch"
+Run-Git -GitArgs @("push", "origin", $Branch)
+Write-Host "Done."
