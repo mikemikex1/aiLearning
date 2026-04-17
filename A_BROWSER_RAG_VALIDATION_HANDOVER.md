@@ -180,3 +180,18 @@ Fix:
 Outcome:
 - Suggested prompts are guaranteed to come from already indexed content,
   reducing mismatch between UI suggestions and retrievable RAG context.
+
+## 11) Follow-up Query Reliability
+
+Problem:
+- Generic follow-up input (e.g., "想知道更多") could trigger weak retrieval
+  and yield an "insufficient context" style response.
+
+Fix:
+- Retrieval query now auto-expands with recent user turns for short follow-ups.
+- If cloud generation still outputs an insufficient-context template while
+  chunks exist, system forces a local structured summary from retrieved chunks.
+
+Outcome:
+- Follow-up queries keep conversational continuity and produce useful content
+  instead of generic "context not enough" replies.

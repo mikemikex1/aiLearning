@@ -205,3 +205,12 @@ Search quick suggestions must be generated from **indexed RAG content only**
 
 This prevents suggestion items from pointing to articles that were fetched into
 `data/raw/` but failed to enter vector storage.
+
+## Follow-up Query Handling
+
+Short follow-up queries (for example: "想知道更多", "more", "continue")
+are automatically expanded with recent user turns before retrieval.
+
+If cloud generation returns an "insufficient context" style template while
+retrieval has already returned chunks, the UI now falls back to a local
+structured summary from retrieved context instead of a blank/blocked answer.
