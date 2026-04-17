@@ -12,6 +12,7 @@ carries a `fetched_at` timestampz (ISO 8601 UTC with Z suffix).
 """
 from __future__ import annotations
 import json
+import re
 from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -22,9 +23,12 @@ from config.settings import RAW_DIR, enabled_feeds, feed_keywords
 FEEDS = {
     "arxiv_cs_ai": "http://export.arxiv.org/rss/cs.AI",
     "simonw": "https://simonwillison.net/atom/everything/",
-    "hf_papers": "https://huggingface.co/papers/rss",
+    # Kept for catalog compatibility; hf_papers is fetched via HF daily papers API.
+    "hf_papers": "https://huggingface.co/papers",
 }
 HN_API = "https://hn.algolia.com/api/v1/search?tags=front_page"
+HF_DAILY_API = "https://huggingface.co/api/daily_papers"
+HF_SUMMARY_MAX_CHARS = 1800
 
 
 def _keyword_match(item: dict, keywords: list[str]) -> bool:
@@ -43,6 +47,14 @@ def _today_dir() -> Path:
     d = RAW_DIR / date.today().isoformat()
     d.mkdir(parents=True, exist_ok=True)
     return d
+
+
+def _normalize_summary(text: str, max_chars: int = HF_SUMMARY_MAX_CHARS) -> str:
+    """Compact noisy summaries to a single line and cap length."""
+    cleaned = re.sub(r"\s+", " ", (text or "")).strip()
+    if len(cleaned) <= max_chars:
+        return cleaned
+    return cleaned[: max_chars - 1].rstrip() + "…"
 
 
 def fetch_rss(name: str, url: str) -> list[dict[str, Any]]:
@@ -72,6 +84,39 @@ def fetch_hn() -> list[dict[str, Any]]:
         return []
 
 
+def fetch_hf_papers(limit: int = 30) -> list[dict[str, Any]]:
+    """Fetch Hugging Face daily papers via public JSON API."""
+    try:
+        r = httpx.get(
+            HF_DAILY_API,
+            timeout=20.0,
+            headers={"User-Agent": "Mozilla/5.0 AILearningBot/1.0"},
+        )
+        r.raise_for_status()
+        payload = r.json()
+        if not isinstance(payload, list):
+            return []
+        now = _now_iso()
+        out: list[dict[str, Any]] = []
+        for row in payload[:limit]:
+            paper = row.get("paper", {}) if isinstance(row, dict) else {}
+            pid = paper.get("id", "")
+            link = f"https://huggingface.co/papers/{pid}" if pid else ""
+            out.append({
+                "source": "hf_papers",
+                "title": paper.get("title", "") or row.get("title", ""),
+                "link": link,
+                "summary": _normalize_summary(
+                    paper.get("summary", "") or row.get("summary", "")
+                ),
+                "published": paper.get("publishedAt", "") or row.get("publishedAt", ""),
+                "fetched_at": now,
+            })
+        return out
+    except Exception:
+        return []
+
+
 def collect_all(keywords: list[str] | None = None) -> Path:
     """Fetch all *enabled* sources and persist as raw JSON under data/raw/<date>/.
 
@@ -91,7 +136,10 @@ def collect_all(keywords: list[str] | None = None) -> Path:
     for name, url in FEEDS.items():
         if not enabled.get(name, True):
             continue
-        raw_per_source[name] = fetch_rss(name, url)
+        if name == "hf_papers":
+            raw_per_source[name] = fetch_hf_papers()
+        else:
+            raw_per_source[name] = fetch_rss(name, url)
 
     if enabled.get("hn", True):
         raw_per_source["hn"] = fetch_hn()
@@ -104,7 +152,9 @@ def collect_all(keywords: list[str] | None = None) -> Path:
         items.extend(i for i in src_items if _keyword_match(i, effective))
 
     now = _now_iso()
-    sources_used = sorted(raw_per_source.keys())
+    sources_used = sorted(
+        src for src, src_items in raw_per_source.items() if src_items
+    )
     payload = {
         "description": (
             f"AILearning daily fetch — fetched_at={now} "
@@ -118,7 +168,12 @@ def collect_all(keywords: list[str] | None = None) -> Path:
     }
     safe = now.replace(":", "").replace("-", "").replace(".", "")
     out = _today_dir() / f"collected_{safe}.json"
-    out.write_text(json.dumps(payload, ensure_ascii=False, indent=2))
+    out.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
     (out.parent / "collected.json").write_text(
-        json.dumps(payload, ensure_ascii=False, indent=2))
+        json.dumps(payload, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
     return out

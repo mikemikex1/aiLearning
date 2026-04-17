@@ -7,6 +7,33 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+
+def _sanitize_broken_proxy_env() -> None:
+    """Clear known-bad loopback proxy values that break cloud model calls."""
+    bad_values = {
+        "http://127.0.0.1:9",
+        "http://localhost:9",
+        "127.0.0.1:9",
+        "localhost:9",
+    }
+    keys = [
+        "HTTP_PROXY",
+        "HTTPS_PROXY",
+        "ALL_PROXY",
+        "http_proxy",
+        "https_proxy",
+        "all_proxy",
+        "GIT_HTTP_PROXY",
+        "GIT_HTTPS_PROXY",
+    ]
+    for k in keys:
+        v = os.getenv(k, "").strip()
+        if v and v.lower() in bad_values:
+            os.environ.pop(k, None)
+
+
+_sanitize_broken_proxy_env()
+
 ROOT = Path(__file__).resolve().parent.parent
 DATA_DIR = ROOT / "data"
 RAW_DIR = DATA_DIR / "raw"
@@ -21,7 +48,10 @@ for d in (RAW_DIR, CHROMA_DIR, LOG_DIR):
 # ---- Verified Gemini free-tier models (April 2026) ----
 MODEL_LITE = "gemini-2.5-flash-lite"   # 15 RPM · 1000 RPD
 MODEL_FLASH = "gemini-2.5-flash"       # 10 RPM · 250 RPD
-EMBEDDING_MODEL = "text-embedding-004"
+# NOTE:
+# - text-embedding-004 is not available on current Gemini API v1beta for this key.
+# - gemini-embedding-001 is currently supported for embed_content.
+EMBEDDING_MODEL = "gemini-embedding-001"
 
 # All source feed IDs the project knows about (id → human label).
 FEED_CATALOG: dict[str, str] = {
@@ -32,6 +62,7 @@ FEED_CATALOG: dict[str, str] = {
 }
 
 DEFAULT_USER_SETTINGS: dict = {
+    "locale": "zh-TW",
     "routing": {
         "simple_model": MODEL_LITE,
         "complex_model": MODEL_FLASH,
@@ -99,3 +130,14 @@ def enabled_feeds() -> dict[str, bool]:
 
 def feed_keywords(feed_id: str) -> list[str]:
     return load_user_settings().get("feed_keywords", {}).get(feed_id, [])
+
+
+def get_locale() -> str:
+    locale = load_user_settings().get("locale", "zh-TW")
+    return locale if locale in ("zh-TW", "en-US") else "zh-TW"
+
+
+def set_locale(locale: str) -> None:
+    data = load_user_settings()
+    data["locale"] = locale if locale in ("zh-TW", "en-US") else "zh-TW"
+    save_user_settings(data)

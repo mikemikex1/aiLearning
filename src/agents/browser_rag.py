@@ -26,7 +26,7 @@ def clean_text(raw: str) -> str:
 def run_daily_ingest() -> dict:
     keywords = load_keywords()
     path = collect_all(keywords=keywords)
-    payload = json.loads(path.read_text())
+    payload = json.loads(path.read_text(encoding="utf-8"))
     items = payload.get("items", [])
     docs = []
     for it in items:
