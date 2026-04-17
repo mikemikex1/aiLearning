@@ -234,3 +234,19 @@ Smoke test command:
 ```powershell
 .\git_sync.ps1 -Action "docs sync" -Files README.md,A_BROWSER_RAG_VALIDATION_HANDOVER.md -NoPush
 ```
+
+## 14) Commit Message Rule Update (2026-04-17)
+
+Change:
+- Deprecated fixed prefix `refator:`.
+- Adopted typed commit format: `<type>: <Action>`.
+
+Implemented:
+1. Updated `.claude/SYSTEM_SKILL.md` with canonical type list.
+2. Updated `git_sync.ps1` to support `-Type` and normalize commit messages.
+3. Default commit type is now `edit`.
+4. Script validates unsupported prefixes and fails fast.
+
+Validation:
+- Run `./git_sync.ps1 -?` and confirm `-Type` exists.
+- Use `-Type debug|add|edit` and verify commit title format is correct.

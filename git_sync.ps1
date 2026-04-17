@@ -1,10 +1,14 @@
 # git_sync.ps1 - one command for stage + commit + push
 # Usage examples:
-#   .\git_sync.ps1 -Action "search page ui update"
-#   .\git_sync.ps1 -Action "update docs" -Files README.md,A_BROWSER_RAG_VALIDATION_HANDOVER.md
-#   .\git_sync.ps1 -Action "wip local only" -NoPush
+#   .\git_sync.ps1 -Type add -Action "search page ui update"
+#   .\git_sync.ps1 -Type edit -Action "update docs" -Files README.md,A_BROWSER_RAG_VALIDATION_HANDOVER.md
+#   .\git_sync.ps1 -Type debug -Action "fix api timeout handling" -NoPush
 
 param(
+    [Parameter(Mandatory = $false)]
+    [ValidateSet("debug", "add", "edit", "docs", "chore", "test", "perf", "refactor")]
+    [string]$Type = "edit",
+
     [Parameter(Mandatory = $true)]
     [string]$Action,
 
@@ -35,15 +39,23 @@ function Run-Git {
 }
 
 function Normalize-Message {
-    param([string]$Text)
+    param(
+        [string]$Text,
+        [string]$MessageType
+    )
     $trimmed = ($Text | ForEach-Object { $_.Trim() })
     if (-not $trimmed) {
         throw "Action cannot be empty."
     }
-    if ($trimmed -match "^(refator|feat|fix|docs|chore|test|perf):\s+") {
-        return $trimmed
+    if ($trimmed -match "^([a-z]+):\s+") {
+        $prefix = $Matches[1]
+        $allowed = @("debug", "add", "edit", "docs", "chore", "test", "perf", "refactor")
+        if ($allowed -contains $prefix) {
+            return $trimmed
+        }
+        throw "Unsupported commit type '$prefix' in Action. Use one of: $($allowed -join ', ')"
     }
-    return "refator: $trimmed"
+    return "$MessageType" + ": " + "$trimmed"
 }
 
 Run-Git -GitArgs @("remote", "get-url", "origin")
@@ -67,7 +79,7 @@ if (-not $status) {
     exit 0
 }
 
-$message = Normalize-Message -Text $Action
+$message = Normalize-Message -Text $Action -MessageType $Type
 Write-Host "==> Commit: $message"
 Run-Git -GitArgs @("commit", "-m", $message)
 

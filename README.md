@@ -243,3 +243,26 @@ Rules:
 - If message has no prefix, script auto-converts to `refator: <action>`.
 - Default staging excludes `data/`, `.venv/`, and `__pycache__/`.
 - Use `-IncludeAll` if you really need full `git add -A`.
+
+## Commit Type Convention Update (2026-04-17)
+
+Commit messages no longer default to `refator:`.
+
+Use:
+
+`<type>: <Action>`
+
+Common types:
+- `debug` for bug fixes
+- `add` for new features
+- `edit` for modifying existing behavior
+- `docs`, `chore`, `test`, `perf`, `refactor` for their respective scopes
+
+`git_sync.ps1` now supports `-Type` and defaults to `edit`.
+
+Examples:
+```powershell
+.\git_sync.ps1 -Type add -Action "search ui quick suggestions"
+.\git_sync.ps1 -Type debug -Action "fix cloud retry fallback"
+.\git_sync.ps1 -Type edit -Action "update handover wording"
+```
