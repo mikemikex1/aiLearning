@@ -158,3 +158,10 @@ $env:PYTHONUTF8='1'
 `hf_papers` 修復：
 - 原 `https://huggingface.co/papers/rss` 回 401，已改為 `https://huggingface.co/api/daily_papers`。
 - 修復後驗證：`hf_papers = 30`，`collect_all` 來源恢復為 4 個（含 hf_papers）。
+
+## 9) Documentation Sync Rule
+
+From now on, every change must include documentation updates in the same commit:
+
+1. Update `README.md`
+2. Update this handover file (`A_BROWSER_RAG_VALIDATION_HANDOVER.md`)

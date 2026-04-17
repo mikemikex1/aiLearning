@@ -187,3 +187,13 @@ Sources:
 - [Gemini API Rate Limits (official)](https://ai.google.dev/gemini-api/docs/rate-limits)
 - [Gemini API Free Tier 2026 Guide](https://www.aifreeapi.com/en/posts/gemini-api-free-tier-rate-limits)
 - [Gemini API Pricing April 2026](https://findskill.ai/blog/gemini-api-pricing-guide/)
+
+---
+
+## Maintenance Rule
+
+For every code/config/behavior change, update documentation in the same commit:
+
+1. Update `README.md`
+2. Update handover document(s), at minimum:
+   - `A_BROWSER_RAG_VALIDATION_HANDOVER.md`
