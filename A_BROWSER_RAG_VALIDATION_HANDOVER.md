@@ -274,3 +274,20 @@ Validation:
 - Query: `我要設定 API Key 要去哪個頁面？`
   - Result: correctly answered `Settings` page guidance.
   - Sources: 0 (navigation guidance path)
+
+## 16) Search Suggestion Refresh Fix (2026-04-17)
+
+Issue:
+- Re-ingesting today's data did not update Search suggestion chips in current session.
+
+Root cause:
+- Suggestion regeneration only happened on bootstrap or after assistant reply.
+- No check existed for underlying indexed-data changes.
+
+Fix:
+1. Added `suggestions_signature` in session state.
+2. Added index signature function based on current indexed item metadata.
+3. On rerun, when signature differs, suggestions regenerate automatically (if not busy).
+
+Validation:
+- Re-ingest data -> reopen/refresh Search page -> suggestions update to new indexed corpus.

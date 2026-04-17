@@ -1,6 +1,7 @@
 """Search page: chat over indexed RAG with in-chat suggestions."""
 from __future__ import annotations
 
+import hashlib
 import re
 import sys
 from datetime import datetime
@@ -10,6 +11,7 @@ import streamlit as st
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from src.agents.search_agent import answer, suggest_prompts
+from src.rag.parent_retriever import list_indexed_items
 from src.ui.i18n import render_locale_selector, t
 
 
@@ -40,6 +42,16 @@ def _reset_state() -> None:
     st.session_state.suggestions = []
 
 
+def _indexed_signature(limit: int = 60) -> str:
+    items = list_indexed_items(limit=limit)
+    key_parts = [
+        f"{it.get('link','')}|{it.get('title','')}|{it.get('fetched_at','')}|{it.get('published','')}"
+        for it in items
+    ]
+    raw = "||".join(key_parts)
+    return hashlib.sha1(raw.encode("utf-8")).hexdigest()
+
+
 locale_setting = render_locale_selector()
 st.title(t("search.title", locale_setting))
 st.caption(t("search.caption", locale_setting))
@@ -56,8 +68,14 @@ if "is_busy" not in st.session_state:
     st.session_state.is_busy = False
 if "suggestions" not in st.session_state:
     st.session_state.suggestions = []
+if "suggestions_signature" not in st.session_state:
+    st.session_state.suggestions_signature = ""
 
-if not st.session_state.suggestions:
+current_signature = _indexed_signature()
+needs_bootstrap = not st.session_state.suggestions
+index_changed = st.session_state.suggestions_signature != current_signature
+
+if (needs_bootstrap or index_changed) and not st.session_state.is_busy:
     boot_locale = _resolve_chat_locale(locale_setting)
     st.session_state.suggestions = suggest_prompts(
         query="",
@@ -65,6 +83,7 @@ if not st.session_state.suggestions:
         locale=boot_locale,
         max_suggestions=3,
     )
+    st.session_state.suggestions_signature = current_signature
 
 control_col, _ = st.columns([1, 6])
 with control_col:
@@ -146,6 +165,7 @@ if st.session_state.is_busy and st.session_state.pending_query:
         locale=_resolve_chat_locale(locale_setting),
         max_suggestions=3,
     )
+    st.session_state.suggestions_signature = _indexed_signature()
     st.session_state.is_busy = False
     st.rerun()
 

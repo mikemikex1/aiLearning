@@ -290,3 +290,15 @@ Page mapping used by the skill:
 3. Raw Source -> ingest + raw article verification
 4. Search -> RAG Q&A with citations
 5. Project -> Planner/Programmer/Tester pipeline
+
+## Search Suggestion Auto-Refresh on Re-Ingest (2026-04-17)
+
+Fixed: Search suggestions now auto-refresh when indexed RAG content changes.
+
+Implementation:
+- Added indexed-content signature check in `pages/2_Search.py`.
+- Signature is derived from indexed item metadata (`link/title/fetched_at/published`).
+- On page rerun, if signature changed, suggestion list is regenerated automatically.
+
+Result:
+- After re-ingest updates today's indexed dataset, Search suggestions refresh without requiring manual reset.
