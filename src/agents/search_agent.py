@@ -1,9 +1,14 @@
-"""Search Agent: indexed RAG retrieval + suggestion titles + synthesis."""
+"""Search Agent: indexed RAG retrieval + language-aware synthesis + product skill."""
 from __future__ import annotations
 
 import re
 from typing import Iterable, Literal, TypedDict
 
+from src.agents.product_skill import (
+    is_app_navigation_query,
+    local_app_navigation_answer,
+    product_skill_text,
+)
 from src.models.router import call_with_fallback
 from src.rag.parent_retriever import list_indexed_items, retrieve
 
@@ -19,13 +24,22 @@ class Citation(TypedDict, total=False):
 
 
 TEMPLATE = (
-    "You are a focused learning assistant. "
-    "Answer using ONLY the context below and cite as [n]. "
-    "If context is insufficient, say so explicitly.\n"
+    "You are a focused learning assistant.\n"
+    "Use ONLY the context blocks for factual claims and cite as [n].\n"
+    "You may use Product Skill Context only for app-page navigation guidance.\n"
     "Write the final answer in {answer_language}.\n\n"
+    "Product Skill Context:\n{product_skill}\n\n"
     "Conversation:\n{history}\n\n"
     "Question: {q}\n\n"
     "Context:\n{ctx}\n"
+)
+
+APP_HELP_TEMPLATE = (
+    "You are an in-app guide.\n"
+    "Answer in {answer_language}.\n"
+    "Use this Product Skill Context only, and give concise page-level guidance.\n\n"
+    "{product_skill}\n\n"
+    "User question: {q}\n"
 )
 
 FOLLOWUP_TERMS = {
@@ -37,6 +51,28 @@ INSUFFICIENT_PATTERNS = {
     "zh": {"上下文不足", "資訊不足", "無法回答", "提供內容不足"},
     "en": {"insufficient context", "not enough context", "cannot answer", "insufficient information"},
 }
+
+
+def _detect_locale_from_text(text: str, fallback: str = "zh-TW") -> str:
+    zh_count = len(re.findall(r"[\u4e00-\u9fff]", text or ""))
+    en_count = len(re.findall(r"[A-Za-z]", text or ""))
+    if zh_count >= 2 and zh_count >= en_count:
+        return "zh-TW"
+    if en_count >= 6 and en_count > zh_count:
+        return "en-US"
+    return fallback
+
+
+def _resolve_answer_locale(query: str, history: list[tuple[str, str]] | None, fallback: str) -> str:
+    by_query = _detect_locale_from_text(query, "")
+    if by_query:
+        return by_query
+    for role, msg in reversed(history or []):
+        if role in ("user", "human") and msg.strip():
+            by_history = _detect_locale_from_text(msg, "")
+            if by_history:
+                return by_history
+    return fallback if fallback in ("zh-TW", "en-US") else "zh-TW"
 
 
 def _format_history(history: Iterable[tuple[str, str]] | None) -> str:
@@ -66,9 +102,7 @@ def _build_citation(index: int, chunk: dict) -> Citation:
 
 def _concise_title(title: str, max_len: int = 80) -> str:
     value = re.sub(r"\s+", " ", (title or "")).strip()
-    if len(value) <= max_len:
-        return value
-    return value[: max_len - 1].rstrip() + "..."
+    return value if len(value) <= max_len else value[: max_len - 1].rstrip() + "..."
 
 
 def _is_followup_query(query: str, locale: str) -> bool:
@@ -99,7 +133,6 @@ def _build_local_summary(chunks: list[dict], k: int, locale: str) -> str:
             snippet = (chunk.get("text", "") or "").replace("\n", " ")[:520]
             lines.append(f"{i}. {title}：{snippet}...")
         return "\n".join(lines)
-
     lines = ["Here are key points from indexed context:"]
     for i, chunk in enumerate(chunks[:k], 1):
         meta = chunk.get("metadata", {}) or {}
@@ -155,19 +188,36 @@ def suggest_prompts(
     return suggestions
 
 
+def _answer_app_navigation(query: str, locale: str) -> str:
+    prompt = APP_HELP_TEMPLATE.format(
+        answer_language="Traditional Chinese" if locale == "zh-TW" else "English",
+        product_skill=product_skill_text(locale),
+        q=query,
+    )
+    try:
+        return call_with_fallback("simple", prompt)
+    except Exception:
+        return local_app_navigation_answer(locale)
+
+
 def answer(
     query: str,
     k: int = 4,
     history: list[tuple[str, str]] | None = None,
     locale: str = "zh-TW",
 ) -> dict:
-    retrieval_query = _expand_retrieval_query(query, history, locale)
+    effective_locale = _resolve_answer_locale(query, history, locale)
+
+    if is_app_navigation_query(query):
+        return {"answer": _answer_app_navigation(query, effective_locale), "sources": []}
+
+    retrieval_query = _expand_retrieval_query(query, history, effective_locale)
     chunks = retrieve(retrieval_query, k=k)
     if not chunks and retrieval_query != query:
         chunks = retrieve(query, k=k)
 
     if not chunks:
-        if locale == "zh-TW":
+        if effective_locale == "zh-TW":
             return {
                 "answer": "目前找不到已索引的上下文。請先執行 ingest，或提供更具體關鍵字。",
                 "sources": [],
@@ -182,7 +232,8 @@ def answer(
         for i, c in enumerate(chunks)
     )
     prompt = TEMPLATE.format(
-        answer_language="Traditional Chinese" if locale == "zh-TW" else "English",
+        answer_language="Traditional Chinese" if effective_locale == "zh-TW" else "English",
+        product_skill=product_skill_text(effective_locale),
         history=_format_history(history),
         q=query,
         ctx=numbered_ctx,
@@ -190,11 +241,11 @@ def answer(
 
     try:
         reply = call_with_fallback("complex", prompt)
-        if _looks_insufficient_reply(reply, locale):
-            reply = _build_local_summary(chunks, k, locale)
+        if _looks_insufficient_reply(reply, effective_locale):
+            reply = _build_local_summary(chunks, k, effective_locale)
     except Exception:
-        reply = _build_local_summary(chunks, k, locale)
-        if locale == "zh-TW":
+        reply = _build_local_summary(chunks, k, effective_locale)
+        if effective_locale == "zh-TW":
             reply += "\n\n目前無法連線到雲端模型，已先提供本地整理重點。"
         else:
             reply += "\n\nCloud model is temporarily unavailable. Local summary is provided."

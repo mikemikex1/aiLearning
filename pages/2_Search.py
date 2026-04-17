@@ -116,24 +116,25 @@ if incoming_query and not st.session_state.is_busy:
 if st.session_state.is_busy and st.session_state.pending_query:
     user_query = st.session_state.pending_query
     st.session_state.pending_query = ""
+    query_locale = _infer_locale_from_text(user_query, chat_locale)
 
     st.session_state.chat.append(("user", user_query))
     with st.chat_message("user"):
         st.markdown(user_query)
 
     with st.chat_message("assistant"):
-        with st.spinner(t("search.thinking", chat_locale)):
+        with st.spinner(t("search.thinking", query_locale)):
             try:
                 result = answer(
                     user_query,
                     history=st.session_state.chat[:-1],
-                    locale=_infer_locale_from_text(user_query, chat_locale),
+                    locale=query_locale,
                 )
                 assistant_reply = result.get("answer", "")
                 st.session_state.last_sources = result.get("sources", [])
                 st.session_state.last_answer = assistant_reply
             except Exception as exc:  # noqa: BLE001
-                assistant_reply = f"{t('common.error', chat_locale)}: {exc}"
+                assistant_reply = f"{t('common.error', query_locale)}: {exc}"
                 st.session_state.last_sources = []
                 st.session_state.last_answer = ""
         st.markdown(assistant_reply)

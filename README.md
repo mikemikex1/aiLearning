@@ -266,3 +266,27 @@ Examples:
 .\git_sync.ps1 -Type debug -Action "fix cloud retry fallback"
 .\git_sync.ps1 -Type edit -Action "update handover wording"
 ```
+
+## Search Language Auto-Detection + Product Skill (2026-04-17)
+
+Search response language now follows user input language first:
+- If user input is Chinese, answer in Traditional Chinese.
+- If user input is English, answer in English.
+- If ambiguous, fallback to current UI locale.
+
+A product navigation skill is now injected into Search LLM prompts, so the assistant can reliably answer app usage questions such as:
+- where to set API keys
+- where to see latest updates
+- where to inspect raw collected items
+- where to ask RAG questions
+- where to generate runnable projects
+
+Skill source:
+- `src/agents/product_skill.py`
+
+Page mapping used by the skill:
+1. Settings -> API keys / keywords / routing / feed toggles
+2. News -> latest daily Top-3 highlights
+3. Raw Source -> ingest + raw article verification
+4. Search -> RAG Q&A with citations
+5. Project -> Planner/Programmer/Tester pipeline

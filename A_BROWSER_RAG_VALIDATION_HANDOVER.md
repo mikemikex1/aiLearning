@@ -250,3 +250,27 @@ Implemented:
 Validation:
 - Run `./git_sync.ps1 -?` and confirm `-Type` exists.
 - Use `-Type debug|add|edit` and verify commit title format is correct.
+
+## 15) Search Language + Product Skill Update (2026-04-17)
+
+Scope:
+- Make Search output language automatically follow user input language.
+- Inject full app navigation knowledge as LLM skill context.
+
+Implemented files:
+- `pages/2_Search.py`
+- `src/agents/search_agent.py`
+- `src/agents/product_skill.py` (new)
+
+Behavior:
+1. Response language resolution:
+   - Query language first
+   - Recent user history language second
+   - UI locale fallback last
+2. App navigation questions are handled via product skill context.
+3. If cloud model is unavailable, navigation answers fall back to deterministic local guidance.
+
+Validation:
+- Query: `我要設定 API Key 要去哪個頁面？`
+  - Result: correctly answered `Settings` page guidance.
+  - Sources: 0 (navigation guidance path)
