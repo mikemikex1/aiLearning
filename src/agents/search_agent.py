@@ -1,4 +1,4 @@
-"""Search Agent: RAG retrieval + suggestion prompts + synthesis."""
+"""Search Agent: indexed RAG retrieval + suggestion titles + synthesis."""
 from __future__ import annotations
 
 import re
@@ -19,65 +19,56 @@ class Citation(TypedDict, total=False):
 
 
 TEMPLATE = (
-    "You are a focused learning assistant. Answer the user's question using "
-    "ONLY the context below. Cite sources inline as [n] where n matches the "
-    "numbered context block. If the context is insufficient, say so.\n"
+    "You are a focused learning assistant. "
+    "Answer using ONLY the context below and cite as [n]. "
+    "If context is insufficient, say so explicitly.\n"
     "Write the final answer in {answer_language}.\n\n"
-    "Conversation so far:\n{history}\n\n"
+    "Conversation:\n{history}\n\n"
     "Question: {q}\n\n"
     "Context:\n{ctx}\n"
 )
 
 FOLLOWUP_TERMS = {
-    "zh": {"想知道更多", "更多", "繼續", "再多一點", "詳細一點", "說明更多", "延伸"},
+    "zh": {"想知道更多", "更多", "繼續", "延伸", "細節", "補充", "再說明"},
     "en": {"tell me more", "more", "continue", "elaborate", "details", "expand"},
 }
 
 INSUFFICIENT_PATTERNS = {
-    "zh": [
-        "提供的上下文不足",
-        "上下文不足",
-        "無法回答",
-        "資訊不足",
-    ],
-    "en": [
-        "insufficient context",
-        "not enough context",
-        "cannot answer",
-        "insufficient information",
-    ],
+    "zh": {"上下文不足", "資訊不足", "無法回答", "提供內容不足"},
+    "en": {"insufficient context", "not enough context", "cannot answer", "insufficient information"},
 }
 
 
 def _format_history(history: Iterable[tuple[str, str]] | None) -> str:
     if not history:
         return "(none)"
-    lines = []
+    lines: list[str] = []
     for role, content in list(history)[-6:]:
         prefix = "User" if role in ("user", "human") else "Assistant"
-        lines.append(f"{prefix}: {content[:400]}")
+        lines.append(f"{prefix}: {content[:500]}")
     return "\n".join(lines)
 
 
-def _build_citation(i: int, c: dict) -> Citation:
-    m = c.get("metadata", {}) or {}
-    source_type: Literal["web", "project"] = "project" if m.get("source") == "project" else "web"
-    full_text = c.get("text") or ""
-    snippet = full_text[:220].replace("\n", " ")
+def _build_citation(index: int, chunk: dict) -> Citation:
+    meta = chunk.get("metadata", {}) or {}
+    source_type: Literal["web", "project"] = "project" if meta.get("source") == "project" else "web"
+    text = chunk.get("text") or ""
     return Citation(
         source_type=source_type,
-        title=m.get("title") or m.get("project_id") or f"source-{i}",
-        link=m.get("link", ""),
-        kind=m.get("kind", m.get("source", "")),
-        file=m.get("file", ""),
-        snippet=snippet,
-        parent_text=full_text,
+        title=meta.get("title") or meta.get("project_id") or f"source-{index}",
+        link=meta.get("link", ""),
+        kind=meta.get("kind", meta.get("source", "")),
+        file=meta.get("file", ""),
+        snippet=text[:220].replace("\n", " "),
+        parent_text=text,
     )
 
 
-def _concise_title(title: str, max_len: int = 58) -> str:
-    t = re.sub(r"\s+", " ", (title or "")).strip()
-    return t if len(t) <= max_len else t[: max_len - 1].rstrip() + "..."
+def _concise_title(title: str, max_len: int = 80) -> str:
+    value = re.sub(r"\s+", " ", (title or "")).strip()
+    if len(value) <= max_len:
+        return value
+    return value[: max_len - 1].rstrip() + "..."
 
 
 def _is_followup_query(query: str, locale: str) -> bool:
@@ -85,44 +76,35 @@ def _is_followup_query(query: str, locale: str) -> bool:
     if not q:
         return False
     if locale == "zh-TW":
-        if len(q) <= 8:
-            return True
-        return any(term in q for term in FOLLOWUP_TERMS["zh"])
-    # en
-    if len(q.split()) <= 3:
-        return True
-    return any(term in q for term in FOLLOWUP_TERMS["en"])
+        return len(q) <= 8 or any(term in q for term in FOLLOWUP_TERMS["zh"])
+    return len(q.split()) <= 3 or any(term in q for term in FOLLOWUP_TERMS["en"])
 
 
 def _expand_retrieval_query(query: str, history: list[tuple[str, str]] | None, locale: str) -> str:
-    """Use recent user turns as anchors for short/ambiguous follow-up queries."""
     if not history:
         return query
-    q = (query or "").strip()
-    if not _is_followup_query(q, locale):
-        return q
-
-    recent_user_msgs = [content for role, content in history if role in ("user", "human")]
-    anchors = [m.strip() for m in recent_user_msgs[-2:] if m.strip()]
-    if not anchors:
-        return q
-    return f"{' '.join(anchors)}\n{q}"
+    if not _is_followup_query(query, locale):
+        return query
+    recent_user = [content.strip() for role, content in history if role in ("user", "human") and content.strip()]
+    anchor = " ".join(recent_user[-2:])
+    return f"{anchor}\n{query}".strip() if anchor else query
 
 
 def _build_local_summary(chunks: list[dict], k: int, locale: str) -> str:
     if locale == "zh-TW":
-        lines = ["以下是根據已檢索內容整理的重點："]
-        for i, c in enumerate(chunks[:k], 1):
-            m = c.get("metadata", {}) or {}
-            title = m.get("title", f"來源 {i}")
-            snippet = (c.get("text", "") or "").replace("\n", " ")[:520]
+        lines = ["根據已索引內容，我先整理重點如下："]
+        for i, chunk in enumerate(chunks[:k], 1):
+            meta = chunk.get("metadata", {}) or {}
+            title = meta.get("title", f"來源 {i}")
+            snippet = (chunk.get("text", "") or "").replace("\n", " ")[:520]
             lines.append(f"{i}. {title}：{snippet}...")
         return "\n".join(lines)
+
     lines = ["Here are key points from indexed context:"]
-    for i, c in enumerate(chunks[:k], 1):
-        m = c.get("metadata", {}) or {}
-        title = m.get("title", f"Source {i}")
-        snippet = (c.get("text", "") or "").replace("\n", " ")[:520]
+    for i, chunk in enumerate(chunks[:k], 1):
+        meta = chunk.get("metadata", {}) or {}
+        title = meta.get("title", f"Source {i}")
+        snippet = (chunk.get("text", "") or "").replace("\n", " ")[:520]
         lines.append(f"{i}. {title}: {snippet}...")
     return "\n".join(lines)
 
@@ -130,53 +112,47 @@ def _build_local_summary(chunks: list[dict], k: int, locale: str) -> str:
 def _looks_insufficient_reply(reply: str, locale: str) -> bool:
     txt = (reply or "").lower()
     patterns = INSUFFICIENT_PATTERNS["zh"] if locale == "zh-TW" else INSUFFICIENT_PATTERNS["en"]
-    return any(p.lower() in txt for p in patterns)
+    return any(p in txt for p in patterns)
 
 
 def suggest_prompts(
     query: str = "",
     history: list[tuple[str, str]] | None = None,
     locale: str = "zh-TW",
-    max_suggestions: int = 5,
+    max_suggestions: int = 3,
 ) -> list[str]:
-    """Generate concise quick prompts from indexed items only."""
-    q = (query or "").strip().lower()
-    history_blob = " ".join([c for _, c in (history or [])[-4:]]).lower()
-    blob = f"{q} {history_blob}".strip()
-
+    """Return title-only suggestions from indexed content."""
     items = list_indexed_items(limit=120)
     if not items:
         return []
 
+    query_blob = " ".join([query, *[c for _, c in (history or [])[-4:]]]).lower().strip()
+    tokens = re.findall(r"[a-zA-Z0-9\-\+\u4e00-\u9fff]{2,}", query_blob)[:12]
+
     scored: list[tuple[int, dict]] = []
-    for it in items:
-        title = it.get("title", "")
-        summary = it.get("summary", "")
+    for item in items:
+        title = item.get("title", "")
+        summary = item.get("summary", "")
         text = f"{title} {summary}".lower()
         score = 1
-        if blob:
-            for token in re.findall(r"[a-zA-Z0-9\-\+\u4e00-\u9fff]{2,}", blob)[:10]:
-                if token in text:
-                    score += 2
-        if it.get("source") == "hf_papers":
+        if locale == "zh-TW" and item.get("language") == "zh":
             score += 1
-        scored.append((score, it))
+        if locale != "zh-TW" and item.get("language") == "en":
+            score += 1
+        for token in tokens:
+            if token in text:
+                score += 2
+        scored.append((score, item))
 
     scored.sort(key=lambda x: x[0], reverse=True)
-    picked = [it for _, it in scored[: max_suggestions * 2]]
-
-    out: list[str] = []
-    for it in picked:
-        title = _concise_title(it.get("title", ""))
-        if locale == "zh-TW":
-            prompt = f"請用三點說明：{title}"
-        else:
-            prompt = f"Explain in 3 bullet points: {title}"
-        if prompt not in out:
-            out.append(prompt)
-        if len(out) >= max_suggestions:
+    suggestions: list[str] = []
+    for _, item in scored:
+        title = _concise_title(item.get("title", ""))
+        if title and title not in suggestions:
+            suggestions.append(title)
+        if len(suggestions) >= max_suggestions:
             break
-    return out
+    return suggestions
 
 
 def answer(
@@ -191,24 +167,25 @@ def answer(
         chunks = retrieve(query, k=k)
 
     if not chunks:
+        if locale == "zh-TW":
+            return {
+                "answer": "目前找不到已索引的上下文。請先執行 ingest，或提供更具體關鍵字。",
+                "sources": [],
+            }
         return {
-            "answer": (
-                "目前找不到已入庫的相關內容，請先執行 ingest，或提供更具體的關鍵詞。"
-                if locale == "zh-TW"
-                else "No indexed context found yet. Run ingest first, or ask with more specific keywords."
-            ),
+            "answer": "No indexed context found yet. Run ingest first, or ask with more specific keywords.",
             "sources": [],
         }
 
     numbered_ctx = "\n\n".join(
-        f"[{i+1}] ({c['metadata'].get('source','?')}) {c['metadata'].get('title','?')}\n{c['text']}"
+        f"[{i + 1}] ({c['metadata'].get('source', '?')}) {c['metadata'].get('title', '?')}\n{c['text']}"
         for i, c in enumerate(chunks)
     )
     prompt = TEMPLATE.format(
+        answer_language="Traditional Chinese" if locale == "zh-TW" else "English",
         history=_format_history(history),
         q=query,
         ctx=numbered_ctx,
-        answer_language="Traditional Chinese" if locale == "zh-TW" else "English",
     )
 
     try:
@@ -216,12 +193,11 @@ def answer(
         if _looks_insufficient_reply(reply, locale):
             reply = _build_local_summary(chunks, k, locale)
     except Exception:
-        # Network-safe fallback summary.
         reply = _build_local_summary(chunks, k, locale)
         if locale == "zh-TW":
-            reply += "\n\n建議稍後重試以取得完整生成式回答。"
+            reply += "\n\n目前無法連線到雲端模型，已先提供本地整理重點。"
         else:
-            reply += "\n\nPlease retry later for a full generated answer."
+            reply += "\n\nCloud model is temporarily unavailable. Local summary is provided."
 
-    citations = [_build_citation(i, c) for i, c in enumerate(chunks)]
+    citations = [_build_citation(i, chunk) for i, chunk in enumerate(chunks)]
     return {"answer": reply, "sources": citations}

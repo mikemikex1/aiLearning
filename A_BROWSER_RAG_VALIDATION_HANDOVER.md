@@ -195,3 +195,24 @@ Fix:
 Outcome:
 - Follow-up queries keep conversational continuity and produce useful content
   instead of generic "context not enough" replies.
+
+## 12) Search UI Behavior Update (2026-04-17)
+
+Goal:
+- Move suggestion prompts inside chat area and keep interaction deterministic.
+
+Implemented behavior:
+1. Suggestion buttons are rendered above the chat input, in a vertical stack.
+2. Suggestion text is title-only (no "suggestion:" prefix).
+3. On suggestion click or send:
+   - hide suggestions immediately;
+   - lock input/suggestion actions while LLM is replying.
+4. After reply is completed, regenerate 3 new suggestions from indexed RAG content.
+5. Locale for suggestions/replies is inferred from recent user text; if unclear, fallback to global language setting.
+
+Validation checklist:
+- Click a suggestion -> cannot click another until response completes.
+- Send input manually -> send button disabled during generation.
+- During generation -> suggestion area hidden.
+- After response -> exactly 3 new suggestions appear.
+- Chinese/English question should shift response/suggestion language accordingly.

@@ -214,3 +214,15 @@ are automatically expanded with recent user turns before retrieval.
 If cloud generation returns an "insufficient context" style template while
 retrieval has already returned chunks, the UI now falls back to a local
 structured summary from retrieved context instead of a blank/blocked answer.
+
+## Search UI Interaction Rule (2026-04-17)
+
+Search page interaction now follows these constraints:
+
+1. Suggestions are rendered inside the chat area, above the input box.
+2. Suggestions are shown as three vertical buttons (title only, no prefix text).
+3. When user clicks a suggestion or sends a message:
+   - suggestion list hides immediately;
+   - send and suggestion actions are disabled until reply is done.
+4. After assistant reply finishes, system regenerates exactly three new suggestions.
+5. Suggestion/answer language is resolved from recent user message first, then falls back to global locale setting.
