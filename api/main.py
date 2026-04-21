@@ -1,38 +1,22 @@
-"""FastAPI batch layer for AI Learning Phase 1.
-
-Run with:
-    uvicorn api.main:app --reload --port 8000
-
-Endpoints
----------
-GET  /health                    — liveness + model routing snapshot
-POST /ingest                    — start ingest job in background, returns {job_id}
-GET  /ingest/status/{job_id}    — poll ingest job status
-POST /search    {query}         — RAG-backed Q&A with citations
-POST /plan      {topic}         — run Planner only, return blueprint.json
-POST /build     {topic,         — run full Planner→Programmer→Tester pipeline
-                 blueprint?: dict}
-GET  /errors?limit=50           — tail of structured error_log.json
-"""
+"""FastAPI batch layer for AI Learning Phase 1 (Project runtime removed)."""
 from __future__ import annotations
+
 import uuid
-from typing import Any
-from fastapi import BackgroundTasks, FastAPI, HTTPException
+
+from fastapi import BackgroundTasks, FastAPI, HTTPException, Response
 from pydantic import BaseModel, Field
 
-from config.settings import MODEL_LITE, MODEL_FLASH, EMBEDDING_MODEL
+from config.settings import EMBEDDING_MODEL, MODEL_FLASH, MODEL_LITE
 from src.agents.browser_rag import run_daily_ingest
-from src.agents.search_agent import answer
-from src.agents.code_team import run_planner_only, run_pipeline
-from src.agents.news_curator import pick_top3, load_top3, list_all_top3
+from src.agents.news_curator import list_all_top3, load_top3, pick_top3
 from src.agents.news_feed import export_atom
+from src.agents.search_agent import answer
 from src.schemas.error_log import read_errors
-from fastapi import Response
 
 app = FastAPI(
-    title="AI Learning — Batch API",
+    title="AI Learning Batch API",
     version="0.1.0",
-    description="Headless HTTP layer over the LangGraph pipeline",
+    description="Headless HTTP layer over ingest/search/news flows.",
 )
 
 # In-memory store for background ingest jobs (keyed by job_id).
@@ -48,29 +32,18 @@ def _run_ingest_job(job_id: str) -> None:
         _ingest_jobs[job_id] = {"status": "failed", "error": str(e)}
 
 
-# ---------------- Schemas ----------------
 class SearchReq(BaseModel):
     query: str = Field(..., min_length=1)
     k: int = 4
 
 
-class PlanReq(BaseModel):
-    topic: str = Field(..., min_length=1)
-
-
-class BuildReq(BaseModel):
-    topic: str = Field(..., min_length=1)
-    blueprint: dict[str, Any] | None = None  # if omitted, planner runs fresh
-
-
-# ---------------- Routes ----------------
 @app.get("/health")
 def health() -> dict:
     return {
         "status": "ok",
-        "models": {"simple": MODEL_LITE, "complex": MODEL_FLASH,
-                   "embedding": EMBEDDING_MODEL},
+        "models": {"simple": MODEL_LITE, "complex": MODEL_FLASH, "embedding": EMBEDDING_MODEL},
         "version": app.version,
+        "project_runtime": "disabled",
     }
 
 
@@ -96,33 +69,6 @@ def search(req: SearchReq) -> dict:
         return answer(req.query, k=req.k)
     except Exception as e:  # noqa: BLE001
         raise HTTPException(status_code=500, detail=f"search failed: {e}")
-
-
-@app.post("/plan")
-def plan(req: PlanReq) -> dict:
-    try:
-        bp = run_planner_only(req.topic)
-        if not bp:
-            raise HTTPException(status_code=502, detail="planner returned empty")
-        return {"blueprint": bp}
-    except HTTPException:
-        raise
-    except Exception as e:  # noqa: BLE001
-        raise HTTPException(status_code=500, detail=f"plan failed: {e}")
-
-
-@app.post("/build")
-def build(req: BuildReq) -> dict:
-    try:
-        result = run_pipeline(req.topic, approved_blueprint=req.blueprint)
-        return {
-            "blueprint": result.get("blueprint"),
-            "project_dir": result.get("project_dir"),
-            "code_preview": (result.get("code") or "")[:1500],
-            "stability_report_preview": (result.get("stability_report") or "")[:1500],
-        }
-    except Exception as e:  # noqa: BLE001
-        raise HTTPException(status_code=500, detail=f"build failed: {e}")
 
 
 @app.get("/news/top3")

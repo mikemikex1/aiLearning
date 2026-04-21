@@ -169,7 +169,7 @@ from src.schemas.blueprint import Blueprint
 from src.schemas.error_log import ErrorEntry, log_error, read_errors
 from src.models import router
 from src.rag import parent_retriever
-from src.agents import browser_rag, search_agent, code_team
+from src.agents import browser_rag, search_agent
 print("  ok")
 
 # ---------- 3. Exercise pure logic ----------
@@ -239,24 +239,8 @@ print(f"  ingested parents: {n}")
 hits = parent_retriever.retrieve("hello")
 print(f"  retrieved: {len(hits)} parent chunk(s)")
 
-print("== code_team LangGraph build + stream ==")
-g = code_team.build_graph()
-cfg = {"configurable": {"thread_id": "smoke"}}
-for ev in g.stream({"topic": "langgraph interrupts"}, config=cfg):
-    print(f"  step: {list(ev.keys())[0]}")
-state = g.get_state(cfg).values
-assert "blueprint" in state, "planner did not set blueprint"
-print(f"  blueprint.project_id = {state['blueprint']['project_id']}")
-
-# Resume past interrupt
-g.update_state(cfg, {"blueprint": state["blueprint"]})
-for ev in g.stream(None, config=cfg):
-    print(f"  step: {list(ev.keys())[0]}")
-final = g.get_state(cfg).values
-assert "code" in final
-assert "stability_report" in final
-print(f"  code len = {len(final['code'])}")
-print(f"  report len = {len(final['stability_report'])}")
+print("== project runtime removed ==")
+print("  code_team graph tests skipped by design")
 
 print("== runner util (real subprocess) ==")
 import tempfile, os
@@ -307,8 +291,8 @@ with _tf.TemporaryDirectory() as td:
     print(f"  indexed {n} parent chunks from fake project")
 
 print("== FastAPI batch layer ==")
-from api.main import app, health, ingest, ingest_status, search, plan, build, errors
-from api.main import SearchReq, PlanReq, BuildReq
+from api.main import app, health, ingest, ingest_status, search, errors
+from api.main import SearchReq
 from fastapi import BackgroundTasks as _BT  # resolves to smoke-test stub
 
 h = health()
@@ -322,17 +306,6 @@ bt._tasks[0].func(*bt._tasks[0].args)  # run background task synchronously
 is_ = ingest_status(ij["job_id"])
 assert is_["status"] in ("done", "failed")
 print(f"  /ingest -> job_id={ij['job_id'][:8]}... status after run={is_['status']}")
-
-p = plan(PlanReq(topic="langgraph interrupts"))
-assert "blueprint" in p and p["blueprint"]
-print(f"  /plan -> blueprint.project_id={p['blueprint'].get('project_id')}")
-
-b = build(BuildReq(topic="rag parent retriever",
-                   blueprint=p["blueprint"]))
-assert b["project_dir"] and b["code_preview"]
-print(f"  /build -> project_dir={b['project_dir']}")
-print(f"            code_preview len={len(b['code_preview'])}")
-print(f"            report_preview len={len(b['stability_report_preview'])}")
 
 e = errors(limit=5)
 print(f"  /errors -> {len(e['entries'])} recent entries")
