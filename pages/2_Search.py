@@ -1,4 +1,4 @@
-"""Search page: split layout (chat + notes) with stoppable async reply."""
+"""Search page: aligned two-pane layout with send/stop controls near input."""
 from __future__ import annotations
 
 import hashlib
@@ -73,30 +73,15 @@ def _init_state() -> None:
         "active_query_locale": "zh-TW",
         "active_user_query": "",
         "canceled_jobs": [],
+        "search_input_text": "",
     }
     for k, v in defaults.items():
         if k not in st.session_state:
             st.session_state[k] = v
 
 
-def _reset_state() -> None:
-    st.session_state.chat = []
-    st.session_state.last_sources = []
-    st.session_state.last_answer = ""
-    st.session_state.is_busy = False
-    st.session_state.suggestions = []
-    st.session_state.suggestions_signature = ""
-    st.session_state.note_markdown = ""
-    st.session_state.active_future = None
-    st.session_state.active_job_id = ""
-    st.session_state.active_query_locale = "zh-TW"
-    st.session_state.active_user_query = ""
-    st.session_state.canceled_jobs = []
-
-
 def _start_async_reply(query: str, history: list[tuple[str, str]], locale: str) -> tuple[str, Future]:
-    future = _EXECUTOR.submit(answer, query, history=history, locale=locale)
-    return str(uuid.uuid4()), future
+    return str(uuid.uuid4()), _EXECUTOR.submit(answer, query, history=history, locale=locale)
 
 
 def _finalize_busy_job() -> None:
@@ -107,8 +92,7 @@ def _finalize_busy_job() -> None:
         return
 
     job_id = st.session_state.active_job_id
-    canceled = job_id in st.session_state.canceled_jobs
-    if canceled:
+    if job_id in st.session_state.canceled_jobs:
         st.session_state.canceled_jobs = [x for x in st.session_state.canceled_jobs if x != job_id]
     else:
         query_locale = st.session_state.active_query_locale or "zh-TW"
@@ -142,6 +126,21 @@ def _finalize_busy_job() -> None:
     st.session_state.active_user_query = ""
 
 
+def _stop_current_job(chat_locale: str) -> None:
+    if st.session_state.active_job_id:
+        st.session_state.canceled_jobs.append(st.session_state.active_job_id)
+    st.session_state.is_busy = False
+    st.session_state.active_future = None
+    st.session_state.active_job_id = ""
+    st.session_state.active_user_query = ""
+    st.session_state.suggestions = suggest_prompts(
+        query="",
+        history=st.session_state.chat,
+        locale=chat_locale,
+        max_suggestions=3,
+    )
+
+
 locale_setting = render_locale_selector()
 _init_state()
 _finalize_busy_job()
@@ -152,9 +151,7 @@ st.title(t("search.title", locale_setting))
 st.caption(t("search.caption", locale_setting))
 
 current_signature = _indexed_signature()
-needs_bootstrap = not st.session_state.suggestions
-index_changed = st.session_state.suggestions_signature != current_signature
-if (needs_bootstrap or index_changed) and not st.session_state.is_busy:
+if (not st.session_state.suggestions or st.session_state.suggestions_signature != current_signature) and not st.session_state.is_busy:
     st.session_state.suggestions = suggest_prompts(
         query="",
         history=st.session_state.chat,
@@ -166,7 +163,14 @@ if (needs_bootstrap or index_changed) and not st.session_state.is_busy:
 st.markdown(
     """
 <style>
-.search-shell { padding: 0.25rem 0.1rem 0.2rem 0.1rem; min-height: 38vh; }
+.search-shell { padding: 0.15rem 0.05rem 0.2rem 0.05rem; min-height: 58vh; }
+.note-card {
+  border: 1px solid rgba(100, 130, 120, 0.32);
+  border-radius: 16px;
+  padding: 0.7rem;
+  min-height: 58vh;
+  background: linear-gradient(180deg, rgba(206,236,229,0.18), rgba(255,255,255,0.04));
+}
 .suggestion-card {
   border: 1px solid rgba(125, 125, 125, 0.25);
   border-radius: 14px;
@@ -179,16 +183,9 @@ st.markdown(
   justify-content: flex-start;
   white-space: normal;
   line-height: 1.35;
-  min-height: 2.4rem;
+  min-height: 2.3rem;
   border-radius: 10px;
-  margin-bottom: 0.38rem;
-}
-.note-card {
-  border: 1px solid rgba(100, 130, 120, 0.32);
-  border-radius: 16px;
-  padding: 0.7rem;
-  min-height: 52vh;
-  background: linear-gradient(180deg, rgba(206,236,229,0.18), rgba(255,255,255,0.04));
+  margin-bottom: 0.35rem;
 }
 div[data-testid="stChatMessageContent"], .stMarkdown, .stTextArea {
   overflow-wrap: anywhere;
@@ -199,44 +196,11 @@ div[data-testid="stChatMessageContent"], .stMarkdown, .stTextArea {
     unsafe_allow_html=True,
 )
 
-ctrl1, ctrl2, ctrl3 = st.columns([1, 1, 1])
-with ctrl1:
-    if st.button(t("search.reset", chat_locale), disabled=st.session_state.is_busy):
-        _reset_state()
-        st.rerun()
-with ctrl2:
-    stop_label = L("停止回覆", "Stop")
-    if st.button(stop_label, disabled=not st.session_state.is_busy, type="secondary", use_container_width=True):
-        if st.session_state.active_job_id:
-            st.session_state.canceled_jobs.append(st.session_state.active_job_id)
-        st.session_state.is_busy = False
-        st.session_state.active_future = None
-        st.session_state.active_job_id = ""
-        st.session_state.active_user_query = ""
-        st.session_state.suggestions = suggest_prompts(
-            query="",
-            history=st.session_state.chat,
-            locale=chat_locale,
-            max_suggestions=3,
-        )
-        st.rerun()
-with ctrl3:
-    if st.session_state.is_busy:
-        if st.button(L("更新狀態", "Refresh Status"), use_container_width=True):
-            st.rerun()
-    else:
-        st.caption("")
-
-st.caption(
-    L(
-        "左側對話・右側筆記。回覆中可按「停止回覆」，或按「更新狀態」檢查完成。",
-        "Chat on left, notes on right. While generating, press Stop or Refresh Status.",
-    )
-)
-
 left_col, right_col = st.columns([1.45, 1], gap="large")
 selected_suggestion = ""
-typed_query = ""
+send_clicked = False
+stop_clicked = False
+refresh_clicked = False
 
 with left_col:
     st.markdown("<div class='search-shell'>", unsafe_allow_html=True)
@@ -255,17 +219,44 @@ with left_col:
                 selected_suggestion = item
         st.markdown("</div>", unsafe_allow_html=True)
 
-    typed_query = st.chat_input(t("search.input", chat_locale), disabled=st.session_state.is_busy)
+    prefill_query = ""
+    if "search_prefill" in st.session_state and not st.session_state.is_busy:
+        prefill_query = (st.session_state.pop("search_prefill") or "").strip()
+
+    c_input, c_send, c_stop, c_refresh = st.columns([9, 1.2, 1.2, 1.3], gap="small")
+    with c_input:
+        typed_query = st.text_input(
+            "",
+            value=st.session_state.search_input_text,
+            placeholder=t("search.input", chat_locale),
+            label_visibility="collapsed",
+            disabled=st.session_state.is_busy,
+            key="search_input_text",
+        )
+    with c_send:
+        send_clicked = st.button(L("送出", "Send"), use_container_width=True, disabled=st.session_state.is_busy)
+    with c_stop:
+        stop_clicked = st.button(L("停止", "Stop"), use_container_width=True, disabled=not st.session_state.is_busy)
+    with c_refresh:
+        refresh_clicked = st.button(L("更新", "Refresh"), use_container_width=True, disabled=not st.session_state.is_busy)
+
     st.markdown("</div>", unsafe_allow_html=True)
 
-prefill_query = ""
-if "search_prefill" in st.session_state and not st.session_state.is_busy:
-    prefill_query = (st.session_state.pop("search_prefill") or "").strip()
+if stop_clicked and st.session_state.is_busy:
+    _stop_current_job(chat_locale)
+    st.rerun()
 
-incoming_query = selected_suggestion or prefill_query or (typed_query or "").strip()
+if refresh_clicked and st.session_state.is_busy:
+    st.rerun()
+
+incoming_query = selected_suggestion or prefill_query
+if not incoming_query and send_clicked and not st.session_state.is_busy:
+    incoming_query = (st.session_state.search_input_text or "").strip()
+
 if incoming_query and not st.session_state.is_busy:
     query_locale = _infer_locale_from_text(incoming_query, chat_locale)
     st.session_state.chat.append(("user", incoming_query))
+    st.session_state.search_input_text = ""
     job_id, future = _start_async_reply(
         query=incoming_query,
         history=st.session_state.chat[:-1],
