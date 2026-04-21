@@ -39,11 +39,17 @@ DATA_DIR = ROOT / "data"
 RAW_DIR = DATA_DIR / "raw"
 CHROMA_DIR = DATA_DIR / "chroma"
 LOG_DIR = DATA_DIR / "logs"
+HF_CACHE_DIR = DATA_DIR / "hf_cache"
 KEYWORDS_FILE = ROOT / "config" / "keywords.json"
 USER_SETTINGS_FILE = ROOT / "config" / "user_settings.json"
 
-for d in (RAW_DIR, CHROMA_DIR, LOG_DIR):
+for d in (RAW_DIR, CHROMA_DIR, LOG_DIR, HF_CACHE_DIR):
     d.mkdir(parents=True, exist_ok=True)
+
+# Keep model/cache writes inside project to avoid user-profile permission issues.
+os.environ.setdefault("HF_HOME", str(HF_CACHE_DIR))
+os.environ.setdefault("HUGGINGFACE_HUB_CACHE", str(HF_CACHE_DIR / "hub"))
+os.environ.setdefault("TRANSFORMERS_CACHE", str(HF_CACHE_DIR / "transformers"))
 
 # ---- Verified Gemini free-tier models (April 2026) ----
 MODEL_LITE = "gemini-2.5-flash-lite"   # 15 RPM · 1000 RPD

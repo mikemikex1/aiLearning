@@ -1,4 +1,4 @@
-"""Search page: aligned two-pane layout with send/stop controls near input."""
+"""Search page: aligned chat + notes with inline send/stop controls."""
 from __future__ import annotations
 
 import hashlib
@@ -30,8 +30,7 @@ def _infer_locale_from_text(text: str, fallback: str) -> str:
 
 
 def _resolve_chat_locale(default_locale: str) -> str:
-    chat = st.session_state.get("chat", [])
-    for role, msg in reversed(chat):
+    for role, msg in reversed(st.session_state.get("chat", [])):
         if role == "user" and msg.strip():
             return _infer_locale_from_text(msg, default_locale)
     return default_locale
@@ -39,11 +38,11 @@ def _resolve_chat_locale(default_locale: str) -> str:
 
 def _indexed_signature(limit: int = 60) -> str:
     items = list_indexed_items(limit=limit)
-    key_parts = [
+    raw = "||".join(
         f"{it.get('link', '')}|{it.get('title', '')}|{it.get('fetched_at', '')}|{it.get('published', '')}"
         for it in items
-    ]
-    return hashlib.sha1("||".join(key_parts).encode("utf-8")).hexdigest()
+    )
+    return hashlib.sha1(raw.encode("utf-8")).hexdigest()
 
 
 def _build_note_markdown(answer_text: str, sources: list[dict], locale: str) -> str:
@@ -89,7 +88,10 @@ def _finalize_busy_job() -> None:
     if not st.session_state.is_busy:
         return
     future = st.session_state.active_future
-    if future is None or not future.done():
+    if future is None:
+        st.session_state.is_busy = False
+        return
+    if not future.done():
         return
 
     job_id = st.session_state.active_job_id
@@ -115,11 +117,7 @@ def _finalize_busy_job() -> None:
             max_suggestions=3,
         )
         st.session_state.suggestions_signature = _indexed_signature()
-        st.session_state.note_markdown = _build_note_markdown(
-            answer_text=assistant_reply,
-            sources=st.session_state.last_sources,
-            locale=query_locale,
-        )
+        st.session_state.note_markdown = _build_note_markdown(assistant_reply, st.session_state.last_sources, query_locale)
 
     st.session_state.is_busy = False
     st.session_state.active_future = None
@@ -151,25 +149,27 @@ L = (lambda zh, en: zh if chat_locale == "zh-TW" else en)
 st.title(t("search.title", locale_setting))
 st.caption(t("search.caption", locale_setting))
 
-current_signature = _indexed_signature()
-if (not st.session_state.suggestions or st.session_state.suggestions_signature != current_signature) and not st.session_state.is_busy:
+sig = _indexed_signature()
+if (not st.session_state.suggestions or st.session_state.suggestions_signature != sig) and not st.session_state.is_busy:
     st.session_state.suggestions = suggest_prompts(
         query="",
         history=st.session_state.chat,
         locale=chat_locale,
         max_suggestions=3,
     )
-    st.session_state.suggestions_signature = current_signature
+    st.session_state.suggestions_signature = sig
 
 st.markdown(
     """
 <style>
-.search-shell { padding: 0.15rem 0.05rem 0.2rem 0.05rem; min-height: 58vh; }
+.pane {
+  min-height: 62vh;
+}
 .note-card {
   border: 1px solid rgba(100, 130, 120, 0.32);
   border-radius: 16px;
   padding: 0.7rem;
-  min-height: 58vh;
+  min-height: 62vh;
   background: linear-gradient(180deg, rgba(206,236,229,0.18), rgba(255,255,255,0.04));
 }
 .suggestion-card {
@@ -204,7 +204,7 @@ stop_clicked = False
 refresh_clicked = False
 
 with left_col:
-    st.markdown("<div class='search-shell'>", unsafe_allow_html=True)
+    st.markdown("<div class='pane'>", unsafe_allow_html=True)
     for role, msg in st.session_state.chat:
         with st.chat_message(role):
             st.markdown(msg)
@@ -224,20 +224,17 @@ with left_col:
     if "search_prefill" in st.session_state and not st.session_state.is_busy:
         prefill_query = (st.session_state.pop("search_prefill") or "").strip()
 
-    # Clear text input safely before widget instantiation on this rerun.
-    if st.session_state.clear_input_next:
-        st.session_state.search_input_text = ""
-        st.session_state.clear_input_next = False
-
-    c_input, c_send, c_stop, c_refresh = st.columns([9, 1.2, 1.2, 1.3], gap="small")
+    c_input, c_send, c_stop, c_refresh = st.columns([9, 1.2, 1.2, 1.2], gap="small")
     with c_input:
-        typed_query = st.text_input(
+        if st.session_state.clear_input_next:
+            st.session_state.search_input_text = ""
+            st.session_state.clear_input_next = False
+        st.text_input(
             "",
-            value=st.session_state.search_input_text,
+            key="search_input_text",
             placeholder=t("search.input", chat_locale),
             label_visibility="collapsed",
             disabled=st.session_state.is_busy,
-            key="search_input_text",
         )
     with c_send:
         send_clicked = st.button(L("送出", "Send"), use_container_width=True, disabled=st.session_state.is_busy)
@@ -245,13 +242,11 @@ with left_col:
         stop_clicked = st.button(L("停止", "Stop"), use_container_width=True, disabled=not st.session_state.is_busy)
     with c_refresh:
         refresh_clicked = st.button(L("更新", "Refresh"), use_container_width=True, disabled=not st.session_state.is_busy)
-
     st.markdown("</div>", unsafe_allow_html=True)
 
 if stop_clicked and st.session_state.is_busy:
     _stop_current_job(chat_locale)
     st.rerun()
-
 if refresh_clicked and st.session_state.is_busy:
     st.rerun()
 
@@ -263,11 +258,7 @@ if incoming_query and not st.session_state.is_busy:
     query_locale = _infer_locale_from_text(incoming_query, chat_locale)
     st.session_state.chat.append(("user", incoming_query))
     st.session_state.clear_input_next = True
-    job_id, future = _start_async_reply(
-        query=incoming_query,
-        history=st.session_state.chat[:-1],
-        locale=query_locale,
-    )
+    job_id, future = _start_async_reply(incoming_query, st.session_state.chat[:-1], query_locale)
     st.session_state.active_future = future
     st.session_state.active_job_id = job_id
     st.session_state.active_user_query = incoming_query
@@ -284,15 +275,13 @@ with right_col:
     if not st.session_state.last_answer:
         st.info(L("尚無可整理內容，先在左側提問。", "No answer yet. Ask on the left panel first."))
     else:
-        regen_col, _ = st.columns([1, 2])
-        with regen_col:
-            if st.button(L("重新整理筆記", "Regenerate Notes"), use_container_width=True):
-                st.session_state.note_markdown = _build_note_markdown(
-                    st.session_state.last_answer,
-                    st.session_state.last_sources,
-                    chat_locale,
-                )
-                st.rerun()
+        if st.button(L("重新整理筆記", "Regenerate Notes"), use_container_width=True):
+            st.session_state.note_markdown = _build_note_markdown(
+                st.session_state.last_answer,
+                st.session_state.last_sources,
+                chat_locale,
+            )
+            st.rerun()
 
         edited = st.text_area(
             L("筆記內容", "Notes"),
