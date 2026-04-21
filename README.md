@@ -302,3 +302,21 @@ Implementation:
 
 Result:
 - After re-ingest updates today's indexed dataset, Search suggestions refresh without requiring manual reset.
+
+## Search UI Redesign (2026-04-21)
+
+Search page is redesigned for friendlier workflow:
+
+1. Split layout:
+   - Left panel: chat conversation and suggestion widget.
+   - Right panel: generated notes workspace.
+2. Suggestions are now displayed in a dedicated in-chat widget card.
+3. Right panel provides:
+   - auto-generated notes from latest answer,
+   - inline editing,
+   - one-click markdown download,
+   - source reference list.
+4. Existing behavior kept:
+   - send/suggestion lock while LLM is replying,
+   - suggestions hide during reply and regenerate after completion,
+   - language follows user input with locale fallback.

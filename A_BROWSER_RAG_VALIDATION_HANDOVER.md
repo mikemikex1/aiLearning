@@ -291,3 +291,25 @@ Fix:
 
 Validation:
 - Re-ingest data -> reopen/refresh Search page -> suggestions update to new indexed corpus.
+
+## 17) Search UIUX Redesign (2026-04-21)
+
+Goal:
+- Improve usability and visual clarity for Search page.
+- Move suggestions into chat widget and dedicate right side for note output.
+
+Implemented in `pages/2_Search.py`:
+1. Two-column layout:
+   - Left: conversation + suggestion widget + chat input.
+   - Right: generated note panel.
+2. Suggestion widget card rendered inside chat flow area.
+3. Note panel supports:
+   - auto note generation from latest assistant answer,
+   - manual regenerate button,
+   - direct text editing,
+   - markdown download.
+4. Source references moved into right note panel expander for cleaner left chat stream.
+
+Validation:
+- Python compile check passed (`py_compile pages/2_Search.py`).
+- Lock/refresh flow remains consistent with prior behavior.
