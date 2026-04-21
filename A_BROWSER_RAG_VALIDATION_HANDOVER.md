@@ -313,3 +313,22 @@ Implemented in `pages/2_Search.py`:
 Validation:
 - Python compile check passed (`py_compile pages/2_Search.py`).
 - Lock/refresh flow remains consistent with prior behavior.
+
+## 18) Daily Learning Top-3 V1 Implementation (2026-04-21)
+
+Implemented modules:
+- `src/agents/news_curator.py` (rewritten)
+- `pages/5_News.py` (rewritten)
+- `pages/2_Search.py` (updated to accept `search_prefill`)
+
+Behavior changes:
+1. Daily learning selection now uses indexed RAG records only.
+2. Added deterministic scoring + topic de-duplication.
+3. Added V1 learning-card schema fields:
+   - summary_3lines / why_it_matters / learn_action_15m / followup_question / score breakdown.
+4. News card can route user directly to Search with prefilled follow-up question.
+
+Validation executed:
+- Syntax compile via in-memory compile() on changed files: passed.
+- `pick_top3('2026-04-17', force=True)` returned picks with full V1 fields.
+- `pick_top3('2026-04-21', force=True)` returned `error` + empty picks when indexed data unavailable (expected guard).

@@ -320,3 +320,31 @@ Search page is redesigned for friendlier workflow:
    - send/suggestion lock while LLM is replying,
    - suggestions hide during reply and regenerate after completion,
    - language follows user input with locale fallback.
+
+## Daily Learning Top-3 V1 (2026-04-21)
+
+Implemented V1 workflow for daily AI learning highlights:
+
+1. Data source rule:
+- Top-3 is selected from **indexed RAG items only** (`list_indexed_items`), not raw-only records.
+
+2. Scoring rule (explainable):
+- `novelty` 40%
+- `practicality` 35%
+- `keyword_match` 25%
+
+3. Per-card fields:
+- `title`, `source`, `link`, `published_at`
+- `summary_3lines`
+- `why_it_matters`
+- `learn_action_15m`
+- `followup_question`
+- `score`, `score_breakdown`
+
+4. UI flow:
+- News page renders daily learning cards.
+- Each card includes **Ask in Search** button.
+- Clicking the button pre-fills Search prompt and jumps to Search page.
+
+5. Fallback behavior:
+- If fewer than 3 indexed items exist for selected date, system returns warning/error instead of fabricating entries.

@@ -39,33 +39,17 @@ def _indexed_signature(limit: int = 60) -> str:
         f"{it.get('link', '')}|{it.get('title', '')}|{it.get('fetched_at', '')}|{it.get('published', '')}"
         for it in items
     ]
-    raw = "||".join(key_parts)
-    return hashlib.sha1(raw.encode("utf-8")).hexdigest()
+    return hashlib.sha1("||".join(key_parts).encode("utf-8")).hexdigest()
 
 
 def _build_note_markdown(answer_text: str, sources: list[dict], locale: str) -> str:
     ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     if locale == "zh-TW":
-        lines = [
-            f"# 對話筆記 ({ts})",
-            "",
-            "## 核心重點",
-            answer_text or "(尚無內容)",
-            "",
-            "## 來源清單",
-        ]
+        lines = [f"# 對話筆記 ({ts})", "", "## 核心重點", answer_text or "(尚無內容)", "", "## 來源清單"]
     else:
-        lines = [
-            f"# Conversation Notes ({ts})",
-            "",
-            "## Key Takeaways",
-            answer_text or "(empty)",
-            "",
-            "## Sources",
-        ]
+        lines = [f"# Conversation Notes ({ts})", "", "## Key Takeaways", answer_text or "(empty)", "", "## Sources"]
     for i, source in enumerate(sources or [], 1):
-        title = source.get("title", "(untitled)")
-        lines.append(f"{i}. {title}")
+        lines.append(f"{i}. {source.get('title', '(untitled)')}")
         if source.get("link"):
             lines.append(f"   - {source['link']}")
     return "\n".join(lines)
@@ -109,7 +93,6 @@ if "note_markdown" not in st.session_state:
 current_signature = _indexed_signature()
 needs_bootstrap = not st.session_state.suggestions
 index_changed = st.session_state.suggestions_signature != current_signature
-
 if (needs_bootstrap or index_changed) and not st.session_state.is_busy:
     st.session_state.suggestions = suggest_prompts(
         query="",
@@ -122,9 +105,7 @@ if (needs_bootstrap or index_changed) and not st.session_state.is_busy:
 st.markdown(
     """
 <style>
-.search-shell {
-  padding: 0.35rem 0.1rem 0.2rem 0.1rem;
-}
+.search-shell { padding: 0.35rem 0.1rem 0.2rem 0.1rem; }
 .suggestion-card {
   border: 1px solid rgba(125, 125, 125, 0.25);
   border-radius: 14px;
@@ -133,13 +114,8 @@ st.markdown(
   background: linear-gradient(180deg, rgba(220,240,235,0.22), rgba(255,255,255,0.06));
 }
 .suggestion-card .stButton > button {
-  text-align: left;
-  justify-content: flex-start;
-  white-space: normal;
-  line-height: 1.35;
-  min-height: 2.4rem;
-  border-radius: 10px;
-  margin-bottom: 0.38rem;
+  text-align: left; justify-content: flex-start; white-space: normal;
+  line-height: 1.35; min-height: 2.4rem; border-radius: 10px; margin-bottom: 0.38rem;
 }
 .note-card {
   border: 1px solid rgba(100, 130, 120, 0.32);
@@ -162,6 +138,7 @@ with ctrl2:
 
 left_col, right_col = st.columns([1.45, 1], gap="large")
 selected_suggestion = ""
+typed_query = ""
 
 with left_col:
     st.markdown("<div class='search-shell'>", unsafe_allow_html=True)
@@ -180,7 +157,11 @@ with left_col:
     typed_query = st.chat_input(t("search.input", chat_locale), disabled=st.session_state.is_busy)
     st.markdown("</div>", unsafe_allow_html=True)
 
-incoming_query = selected_suggestion or (typed_query or "").strip()
+prefill_query = ""
+if "search_prefill" in st.session_state and not st.session_state.is_busy:
+    prefill_query = (st.session_state.pop("search_prefill") or "").strip()
+
+incoming_query = selected_suggestion or prefill_query or (typed_query or "").strip()
 if incoming_query and not st.session_state.is_busy:
     st.session_state.pending_query = incoming_query
     st.session_state.suggestions = []
@@ -217,37 +198,29 @@ if st.session_state.is_busy and st.session_state.pending_query:
         max_suggestions=3,
     )
     st.session_state.suggestions_signature = _indexed_signature()
-    st.session_state.note_markdown = _build_note_markdown(
-        answer_text=assistant_reply,
-        sources=st.session_state.last_sources,
-        locale=query_locale,
-    )
+    st.session_state.note_markdown = _build_note_markdown(assistant_reply, st.session_state.last_sources, query_locale)
     st.session_state.is_busy = False
     st.rerun()
 
 with right_col:
     st.markdown("<div class='note-card'>", unsafe_allow_html=True)
     st.subheader(L("產出筆記", "Generated Notes"))
-    st.caption(L("這裡可直接整理、編輯並匯出對話重點。", "Review, edit, and export conversation notes here."))
+    st.caption(L("可直接整理、編輯並匯出重點。", "Review, edit, and export notes here."))
 
     if not st.session_state.last_answer:
-        st.info(L("尚無可整理內容，先在左側提問。", "No answer yet. Ask something on the left panel first."))
+        st.info(L("尚無可整理內容，先在左側提問。", "No answer yet. Ask on the left panel first."))
     else:
         regen_col, _ = st.columns([1, 2])
         with regen_col:
             if st.button(L("重新整理筆記", "Regenerate Notes"), use_container_width=True):
                 st.session_state.note_markdown = _build_note_markdown(
-                    answer_text=st.session_state.last_answer,
-                    sources=st.session_state.last_sources,
-                    locale=chat_locale,
+                    st.session_state.last_answer,
+                    st.session_state.last_sources,
+                    chat_locale,
                 )
                 st.rerun()
 
-        edited = st.text_area(
-            L("筆記內容", "Notes"),
-            value=st.session_state.note_markdown,
-            height=420,
-        )
+        edited = st.text_area(L("筆記內容", "Notes"), value=st.session_state.note_markdown, height=420)
         if edited != st.session_state.note_markdown:
             st.session_state.note_markdown = edited
 
@@ -261,16 +234,11 @@ with right_col:
 
         with st.expander(t("search.sources", chat_locale), expanded=False):
             for i, source in enumerate(st.session_state.last_sources, 1):
-                title = source.get("title") or f"source-{i}"
-                link = source.get("link", "")
-                source_type = source.get("source_type", "web")
-                icon = "📄" if source_type == "project" else "🌐"
-                st.markdown(f"**{icon} {title}**")
-                snippet = source.get("snippet", "")
-                if snippet:
-                    st.caption(snippet)
-                if link:
-                    st.markdown(f"[{t('search.open_source', chat_locale)}]({link})")
+                icon = "📄" if source.get("source_type") == "project" else "🌐"
+                st.markdown(f"**{icon} {source.get('title') or f'source-{i}'}**")
+                if source.get("snippet"):
+                    st.caption(source["snippet"])
+                if source.get("link"):
+                    st.markdown(f"[{t('search.open_source', chat_locale)}]({source['link']})")
                 st.markdown("---")
-
     st.markdown("</div>", unsafe_allow_html=True)
