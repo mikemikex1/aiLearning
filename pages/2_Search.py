@@ -10,7 +10,6 @@ from datetime import datetime
 from pathlib import Path
 
 import streamlit as st
-import streamlit.components.v1 as components
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from src.agents.search_agent import answer, suggest_prompts
@@ -200,7 +199,7 @@ div[data-testid="stChatMessageContent"], .stMarkdown, .stTextArea {
     unsafe_allow_html=True,
 )
 
-ctrl1, ctrl2, ctrl3 = st.columns([1, 1, 6])
+ctrl1, ctrl2, ctrl3 = st.columns([1, 1, 1])
 with ctrl1:
     if st.button(t("search.reset", chat_locale), disabled=st.session_state.is_busy):
         _reset_state()
@@ -223,9 +222,17 @@ with ctrl2:
         st.rerun()
 with ctrl3:
     if st.session_state.is_busy:
-        st.caption(L("回覆生成中，可按停止後繼續輸入。", "Generating reply. Press Stop to continue typing."))
+        if st.button(L("更新狀態", "Refresh Status"), use_container_width=True):
+            st.rerun()
     else:
-        st.caption(L("左側對話・右側筆記", "Chat on left, notes on right"))
+        st.caption("")
+
+st.caption(
+    L(
+        "左側對話・右側筆記。回覆中可按「停止回覆」，或按「更新狀態」檢查完成。",
+        "Chat on left, notes on right. While generating, press Stop or Refresh Status.",
+    )
+)
 
 left_col, right_col = st.columns([1.45, 1], gap="large")
 selected_suggestion = ""
@@ -271,19 +278,6 @@ if incoming_query and not st.session_state.is_busy:
     st.session_state.suggestions = []
     st.session_state.is_busy = True
     st.rerun()
-
-if st.session_state.is_busy:
-    components.html(
-        """
-<script>
-setTimeout(function () {
-  window.parent.location.reload();
-}, 1200);
-</script>
-""",
-        height=0,
-        width=0,
-    )
 
 with right_col:
     st.markdown("<div class='note-card'>", unsafe_allow_html=True)

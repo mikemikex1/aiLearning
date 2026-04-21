@@ -391,3 +391,16 @@ Change:
 
 Also tuned UI spacing:
 - Reduced oversized blank area by lowering chat and notes panel minimum heights.
+
+## Search Refresh Loop Fix (2026-04-21)
+
+Fixed issue where clicking suggestions caused continuous page refresh.
+
+Change:
+- Removed automatic busy-state page reload loop.
+- Added manual `Refresh Status` button while reply is generating.
+- Kept `Stop` button to unlock input immediately.
+
+Result:
+- No more endless auto-refresh after selecting suggestions.
+- User controls when to check completion and can stop anytime.

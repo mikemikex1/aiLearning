@@ -387,3 +387,17 @@ Fix:
 Validation:
 - `pages/2_Search.py` syntax compile passed.
 - Busy-state polling no longer depends on unavailable `st.autorefresh` API.
+
+## 22) Search Infinite Refresh Fix (2026-04-21)
+
+Issue:
+- Suggestion click could trigger repeated auto-refresh during busy state.
+
+Fix:
+1. Removed automatic timed reload mechanism.
+2. Added explicit `Refresh Status` action button in busy mode.
+3. Preserved `Stop` action to cancel/ignore in-flight response and re-enable input.
+
+Validation:
+- `pages/2_Search.py` syntax compile passed.
+- Busy state no longer forces continuous page refresh.
