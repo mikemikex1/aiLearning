@@ -10,6 +10,7 @@ from datetime import datetime
 from pathlib import Path
 
 import streamlit as st
+import streamlit.components.v1 as components
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from src.agents.search_agent import answer, suggest_prompts
@@ -166,7 +167,7 @@ if (needs_bootstrap or index_changed) and not st.session_state.is_busy:
 st.markdown(
     """
 <style>
-.search-shell { padding: 0.3rem 0.1rem 0.2rem 0.1rem; min-height: 70vh; }
+.search-shell { padding: 0.25rem 0.1rem 0.2rem 0.1rem; min-height: 38vh; }
 .suggestion-card {
   border: 1px solid rgba(125, 125, 125, 0.25);
   border-radius: 14px;
@@ -187,7 +188,7 @@ st.markdown(
   border: 1px solid rgba(100, 130, 120, 0.32);
   border-radius: 16px;
   padding: 0.7rem;
-  min-height: 70vh;
+  min-height: 52vh;
   background: linear-gradient(180deg, rgba(206,236,229,0.18), rgba(255,255,255,0.04));
 }
 div[data-testid="stChatMessageContent"], .stMarkdown, .stTextArea {
@@ -272,7 +273,17 @@ if incoming_query and not st.session_state.is_busy:
     st.rerun()
 
 if st.session_state.is_busy:
-    st.autorefresh(interval=1200, key="search_busy_poll")
+    components.html(
+        """
+<script>
+setTimeout(function () {
+  window.parent.location.reload();
+}, 1200);
+</script>
+""",
+        height=0,
+        width=0,
+    )
 
 with right_col:
     st.markdown("<div class='note-card'>", unsafe_allow_html=True)

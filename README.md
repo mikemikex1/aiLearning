@@ -380,3 +380,14 @@ Project fix:
 Impact:
 - Search/UI no longer floods logs with watcher-triggered torchvision errors.
 - No need to install `torchvision` unless you actually run vision pipelines.
+
+## Search Compatibility Fix: `st.autorefresh` Error (2026-04-21)
+
+Fixed compatibility issue:
+- `AttributeError: module 'streamlit' has no attribute 'autorefresh'`
+
+Change:
+- Replaced `st.autorefresh(...)` with a lightweight JS timed reload via `streamlit.components.v1.html(...)` during busy state.
+
+Also tuned UI spacing:
+- Reduced oversized blank area by lowering chat and notes panel minimum heights.

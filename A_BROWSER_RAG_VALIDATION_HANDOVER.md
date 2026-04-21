@@ -373,3 +373,17 @@ Why this fix:
 
 Validation:
 - Configuration added at project level; restart Streamlit app to apply.
+
+## 21) Search autorefresh API Compatibility + Spacing Fix (2026-04-21)
+
+Issue:
+1. `st.autorefresh` not available in current Streamlit version.
+2. Search page showed excessive top blank space.
+
+Fix:
+1. Replaced unavailable API with components-based timed reload while busy.
+2. Reduced `.search-shell` min-height and `.note-card` min-height to stabilize layout density.
+
+Validation:
+- `pages/2_Search.py` syntax compile passed.
+- Busy-state polling no longer depends on unavailable `st.autorefresh` API.
