@@ -348,3 +348,18 @@ Implemented V1 workflow for daily AI learning highlights:
 
 5. Fallback behavior:
 - If fewer than 3 indexed items exist for selected date, system returns warning/error instead of fabricating entries.
+
+## Search Stop Button + Layout Stability Fix (2026-04-21)
+
+Fixed two UX issues on Search page:
+
+1. Stop reply control:
+- Added explicit `Stop` button in Search toolbar.
+- Reply generation now runs in background async job.
+- Pressing Stop immediately unlocks input and allows next message.
+- Canceled job results are discarded when they return.
+
+2. Layout size jitter fix:
+- Added stable min-height for chat and notes panels.
+- Added word-wrap / break-word guards to prevent long strings from stretching layout.
+- Added polling refresh only during busy state for smoother UI behavior.

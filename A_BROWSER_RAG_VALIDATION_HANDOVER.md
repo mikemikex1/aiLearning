@@ -332,3 +332,27 @@ Validation executed:
 - Syntax compile via in-memory compile() on changed files: passed.
 - `pick_top3('2026-04-17', force=True)` returned picks with full V1 fields.
 - `pick_top3('2026-04-21', force=True)` returned `error` + empty picks when indexed data unavailable (expected guard).
+
+## 19) Search Stop Control + UI Jitter Fix (2026-04-21)
+
+Issue A:
+- Clicking a suggestion/button could lead to long blocking response and apparent freeze.
+
+Fix A:
+1. Refactored Search reply flow to async future-based execution.
+2. Added dedicated `Stop` button:
+   - marks current job as canceled,
+   - unlocks input immediately,
+   - ignores canceled result when/if it returns.
+
+Issue B:
+- Search layout could resize unexpectedly during long loads.
+
+Fix B:
+1. Set stable min-height for left/right panels.
+2. Added overflow-wrap and word-break CSS guards.
+3. Busy-state polling uses lightweight timed refresh for consistent rendering.
+
+Validation:
+- Syntax compile for `pages/2_Search.py` passed.
+- UI behavior now supports stop-and-continue interaction during long replies.

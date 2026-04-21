@@ -1,9 +1,11 @@
-"""Search page: friendlier split layout (chat + notes)."""
+"""Search page: split layout (chat + notes) with stoppable async reply."""
 from __future__ import annotations
 
 import hashlib
 import re
 import sys
+import uuid
+from concurrent.futures import Future, ThreadPoolExecutor
 from datetime import datetime
 from pathlib import Path
 
@@ -13,6 +15,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from src.agents.search_agent import answer, suggest_prompts
 from src.rag.parent_retriever import list_indexed_items
 from src.ui.i18n import render_locale_selector, t
+
+_EXECUTOR = ThreadPoolExecutor(max_workers=2)
 
 
 def _infer_locale_from_text(text: str, fallback: str) -> str:
@@ -55,40 +59,97 @@ def _build_note_markdown(answer_text: str, sources: list[dict], locale: str) -> 
     return "\n".join(lines)
 
 
+def _init_state() -> None:
+    defaults = {
+        "chat": [],
+        "last_sources": [],
+        "last_answer": "",
+        "is_busy": False,
+        "suggestions": [],
+        "suggestions_signature": "",
+        "note_markdown": "",
+        "active_future": None,
+        "active_job_id": "",
+        "active_query_locale": "zh-TW",
+        "active_user_query": "",
+        "canceled_jobs": [],
+    }
+    for k, v in defaults.items():
+        if k not in st.session_state:
+            st.session_state[k] = v
+
+
 def _reset_state() -> None:
     st.session_state.chat = []
     st.session_state.last_sources = []
     st.session_state.last_answer = ""
-    st.session_state.pending_query = ""
     st.session_state.is_busy = False
     st.session_state.suggestions = []
     st.session_state.suggestions_signature = ""
     st.session_state.note_markdown = ""
+    st.session_state.active_future = None
+    st.session_state.active_job_id = ""
+    st.session_state.active_query_locale = "zh-TW"
+    st.session_state.active_user_query = ""
+    st.session_state.canceled_jobs = []
+
+
+def _start_async_reply(query: str, history: list[tuple[str, str]], locale: str) -> tuple[str, Future]:
+    future = _EXECUTOR.submit(answer, query, history=history, locale=locale)
+    return str(uuid.uuid4()), future
+
+
+def _finalize_busy_job() -> None:
+    if not st.session_state.is_busy:
+        return
+    future = st.session_state.active_future
+    if future is None or not future.done():
+        return
+
+    job_id = st.session_state.active_job_id
+    canceled = job_id in st.session_state.canceled_jobs
+    if canceled:
+        st.session_state.canceled_jobs = [x for x in st.session_state.canceled_jobs if x != job_id]
+    else:
+        query_locale = st.session_state.active_query_locale or "zh-TW"
+        try:
+            result = future.result()
+            assistant_reply = result.get("answer", "")
+            st.session_state.last_sources = result.get("sources", [])
+            st.session_state.last_answer = assistant_reply
+        except Exception as exc:  # noqa: BLE001
+            assistant_reply = f"{t('common.error', query_locale)}: {exc}"
+            st.session_state.last_sources = []
+            st.session_state.last_answer = ""
+
+        st.session_state.chat.append(("assistant", assistant_reply))
+        st.session_state.suggestions = suggest_prompts(
+            query=assistant_reply,
+            history=st.session_state.chat,
+            locale=query_locale,
+            max_suggestions=3,
+        )
+        st.session_state.suggestions_signature = _indexed_signature()
+        st.session_state.note_markdown = _build_note_markdown(
+            answer_text=assistant_reply,
+            sources=st.session_state.last_sources,
+            locale=query_locale,
+        )
+
+    st.session_state.is_busy = False
+    st.session_state.active_future = None
+    st.session_state.active_job_id = ""
+    st.session_state.active_user_query = ""
 
 
 locale_setting = render_locale_selector()
+_init_state()
+_finalize_busy_job()
 chat_locale = _resolve_chat_locale(locale_setting)
 L = (lambda zh, en: zh if chat_locale == "zh-TW" else en)
 
 st.title(t("search.title", locale_setting))
 st.caption(t("search.caption", locale_setting))
-
-if "chat" not in st.session_state:
-    st.session_state.chat = []
-if "last_sources" not in st.session_state:
-    st.session_state.last_sources = []
-if "last_answer" not in st.session_state:
-    st.session_state.last_answer = ""
-if "pending_query" not in st.session_state:
-    st.session_state.pending_query = ""
-if "is_busy" not in st.session_state:
-    st.session_state.is_busy = False
-if "suggestions" not in st.session_state:
-    st.session_state.suggestions = []
-if "suggestions_signature" not in st.session_state:
-    st.session_state.suggestions_signature = ""
-if "note_markdown" not in st.session_state:
-    st.session_state.note_markdown = ""
 
 current_signature = _indexed_signature()
 needs_bootstrap = not st.session_state.suggestions
@@ -105,7 +166,7 @@ if (needs_bootstrap or index_changed) and not st.session_state.is_busy:
 st.markdown(
     """
 <style>
-.search-shell { padding: 0.35rem 0.1rem 0.2rem 0.1rem; }
+.search-shell { padding: 0.3rem 0.1rem 0.2rem 0.1rem; min-height: 70vh; }
 .suggestion-card {
   border: 1px solid rgba(125, 125, 125, 0.25);
   border-radius: 14px;
@@ -114,27 +175,56 @@ st.markdown(
   background: linear-gradient(180deg, rgba(220,240,235,0.22), rgba(255,255,255,0.06));
 }
 .suggestion-card .stButton > button {
-  text-align: left; justify-content: flex-start; white-space: normal;
-  line-height: 1.35; min-height: 2.4rem; border-radius: 10px; margin-bottom: 0.38rem;
+  text-align: left;
+  justify-content: flex-start;
+  white-space: normal;
+  line-height: 1.35;
+  min-height: 2.4rem;
+  border-radius: 10px;
+  margin-bottom: 0.38rem;
 }
 .note-card {
   border: 1px solid rgba(100, 130, 120, 0.32);
   border-radius: 16px;
   padding: 0.7rem;
+  min-height: 70vh;
   background: linear-gradient(180deg, rgba(206,236,229,0.18), rgba(255,255,255,0.04));
+}
+div[data-testid="stChatMessageContent"], .stMarkdown, .stTextArea {
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 </style>
 """,
     unsafe_allow_html=True,
 )
 
-ctrl1, ctrl2 = st.columns([1, 7])
+ctrl1, ctrl2, ctrl3 = st.columns([1, 1, 6])
 with ctrl1:
     if st.button(t("search.reset", chat_locale), disabled=st.session_state.is_busy):
         _reset_state()
         st.rerun()
 with ctrl2:
-    st.caption(L("左側對話・右側筆記", "Chat on left, notes on right"))
+    stop_label = L("停止回覆", "Stop")
+    if st.button(stop_label, disabled=not st.session_state.is_busy, type="secondary", use_container_width=True):
+        if st.session_state.active_job_id:
+            st.session_state.canceled_jobs.append(st.session_state.active_job_id)
+        st.session_state.is_busy = False
+        st.session_state.active_future = None
+        st.session_state.active_job_id = ""
+        st.session_state.active_user_query = ""
+        st.session_state.suggestions = suggest_prompts(
+            query="",
+            history=st.session_state.chat,
+            locale=chat_locale,
+            max_suggestions=3,
+        )
+        st.rerun()
+with ctrl3:
+    if st.session_state.is_busy:
+        st.caption(L("回覆生成中，可按停止後繼續輸入。", "Generating reply. Press Stop to continue typing."))
+    else:
+        st.caption(L("左側對話・右側筆記", "Chat on left, notes on right"))
 
 left_col, right_col = st.columns([1.45, 1], gap="large")
 selected_suggestion = ""
@@ -146,7 +236,10 @@ with left_col:
         with st.chat_message(role):
             st.markdown(msg)
 
-    if not st.session_state.is_busy and st.session_state.suggestions:
+    if st.session_state.is_busy:
+        with st.chat_message("assistant"):
+            st.info(L("正在產生回覆...", "Generating response..."))
+    elif st.session_state.suggestions:
         st.markdown("<div class='suggestion-card'>", unsafe_allow_html=True)
         st.caption(L("快速建議", "Quick Suggestions"))
         for i, item in enumerate(st.session_state.suggestions[:3], 1):
@@ -163,44 +256,23 @@ if "search_prefill" in st.session_state and not st.session_state.is_busy:
 
 incoming_query = selected_suggestion or prefill_query or (typed_query or "").strip()
 if incoming_query and not st.session_state.is_busy:
-    st.session_state.pending_query = incoming_query
+    query_locale = _infer_locale_from_text(incoming_query, chat_locale)
+    st.session_state.chat.append(("user", incoming_query))
+    job_id, future = _start_async_reply(
+        query=incoming_query,
+        history=st.session_state.chat[:-1],
+        locale=query_locale,
+    )
+    st.session_state.active_future = future
+    st.session_state.active_job_id = job_id
+    st.session_state.active_user_query = incoming_query
+    st.session_state.active_query_locale = query_locale
     st.session_state.suggestions = []
     st.session_state.is_busy = True
     st.rerun()
 
-if st.session_state.is_busy and st.session_state.pending_query:
-    user_query = st.session_state.pending_query
-    st.session_state.pending_query = ""
-    query_locale = _infer_locale_from_text(user_query, chat_locale)
-
-    st.session_state.chat.append(("user", user_query))
-    with left_col:
-        with st.chat_message("user"):
-            st.markdown(user_query)
-        with st.chat_message("assistant"):
-            with st.spinner(t("search.thinking", query_locale)):
-                try:
-                    result = answer(user_query, history=st.session_state.chat[:-1], locale=query_locale)
-                    assistant_reply = result.get("answer", "")
-                    st.session_state.last_sources = result.get("sources", [])
-                    st.session_state.last_answer = assistant_reply
-                except Exception as exc:  # noqa: BLE001
-                    assistant_reply = f"{t('common.error', query_locale)}: {exc}"
-                    st.session_state.last_sources = []
-                    st.session_state.last_answer = ""
-            st.markdown(assistant_reply)
-
-    st.session_state.chat.append(("assistant", assistant_reply))
-    st.session_state.suggestions = suggest_prompts(
-        query=assistant_reply,
-        history=st.session_state.chat,
-        locale=query_locale,
-        max_suggestions=3,
-    )
-    st.session_state.suggestions_signature = _indexed_signature()
-    st.session_state.note_markdown = _build_note_markdown(assistant_reply, st.session_state.last_sources, query_locale)
-    st.session_state.is_busy = False
-    st.rerun()
+if st.session_state.is_busy:
+    st.autorefresh(interval=1200, key="search_busy_poll")
 
 with right_col:
     st.markdown("<div class='note-card'>", unsafe_allow_html=True)
@@ -220,7 +292,11 @@ with right_col:
                 )
                 st.rerun()
 
-        edited = st.text_area(L("筆記內容", "Notes"), value=st.session_state.note_markdown, height=420)
+        edited = st.text_area(
+            L("筆記內容", "Notes"),
+            value=st.session_state.note_markdown,
+            height=420,
+        )
         if edited != st.session_state.note_markdown:
             st.session_state.note_markdown = edited
 
