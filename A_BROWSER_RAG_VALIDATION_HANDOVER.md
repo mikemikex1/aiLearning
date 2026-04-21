@@ -356,3 +356,20 @@ Fix B:
 Validation:
 - Syntax compile for `pages/2_Search.py` passed.
 - UI behavior now supports stop-and-continue interaction during long replies.
+
+## 20) Streamlit Watcher vs Transformers Optional torchvision (2026-04-21)
+
+Issue:
+- Runtime log flooded by `ModuleNotFoundError: No module named 'torchvision'`.
+- Trigger path: `streamlit.watcher.local_sources_watcher` -> `transformers` lazy image module imports.
+
+Fix:
+1. Added `.streamlit/config.toml`.
+2. Set `server.fileWatcherType = "none"` to stop module-path probing side effects.
+
+Why this fix:
+- Project does not require vision/image pipelines for current features.
+- Installing torchvision is unnecessary for this code path and may add heavy dependency cost.
+
+Validation:
+- Configuration added at project level; restart Streamlit app to apply.

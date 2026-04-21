@@ -1,0 +1,7 @@
+[server]
+# Prevent Streamlit module watcher from probing lazy-loaded transformer submodules
+# that trigger optional torchvision imports in this project environment.
+fileWatcherType = "none"
+
+[browser]
+gatherUsageStats = false

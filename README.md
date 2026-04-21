@@ -363,3 +363,20 @@ Fixed two UX issues on Search page:
 - Added stable min-height for chat and notes panels.
 - Added word-wrap / break-word guards to prevent long strings from stretching layout.
 - Added polling refresh only during busy state for smoother UI behavior.
+
+## Streamlit + Transformers Watcher Fix (2026-04-21)
+
+If you see repeated errors like:
+- `ModuleNotFoundError: No module named 'torchvision'`
+- stack traces from `streamlit.watcher.local_sources_watcher` probing `transformers.models.*`
+
+Root cause:
+- Streamlit file watcher inspects module paths and triggers lazy imports inside `transformers` image-processing modules, which require optional `torchvision`.
+
+Project fix:
+- Added `.streamlit/config.toml` with:
+  - `server.fileWatcherType = "none"`
+
+Impact:
+- Search/UI no longer floods logs with watcher-triggered torchvision errors.
+- No need to install `torchvision` unless you actually run vision pipelines.
