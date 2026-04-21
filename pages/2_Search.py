@@ -74,6 +74,7 @@ def _init_state() -> None:
         "active_user_query": "",
         "canceled_jobs": [],
         "search_input_text": "",
+        "clear_input_next": False,
     }
     for k, v in defaults.items():
         if k not in st.session_state:
@@ -223,6 +224,11 @@ with left_col:
     if "search_prefill" in st.session_state and not st.session_state.is_busy:
         prefill_query = (st.session_state.pop("search_prefill") or "").strip()
 
+    # Clear text input safely before widget instantiation on this rerun.
+    if st.session_state.clear_input_next:
+        st.session_state.search_input_text = ""
+        st.session_state.clear_input_next = False
+
     c_input, c_send, c_stop, c_refresh = st.columns([9, 1.2, 1.2, 1.3], gap="small")
     with c_input:
         typed_query = st.text_input(
@@ -256,7 +262,7 @@ if not incoming_query and send_clicked and not st.session_state.is_busy:
 if incoming_query and not st.session_state.is_busy:
     query_locale = _infer_locale_from_text(incoming_query, chat_locale)
     st.session_state.chat.append(("user", incoming_query))
-    st.session_state.search_input_text = ""
+    st.session_state.clear_input_next = True
     job_id, future = _start_async_reply(
         query=incoming_query,
         history=st.session_state.chat[:-1],
